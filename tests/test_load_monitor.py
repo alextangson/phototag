@@ -1,0 +1,47 @@
+import pytest
+from unittest.mock import patch
+from photo_memory.load_monitor import LoadMonitor, LoadDecision
+
+
+def test_should_continue_when_load_is_low():
+    monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
+    with patch.object(monitor, "_get_memory_pressure", return_value="normal"), \
+         patch.object(monitor, "_get_cpu_idle", return_value=80.0):
+        assert monitor.check() == LoadDecision.CONTINUE
+
+
+def test_should_pause_when_cpu_busy():
+    monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
+    with patch.object(monitor, "_get_memory_pressure", return_value="normal"), \
+         patch.object(monitor, "_get_cpu_idle", return_value=20.0):
+        assert monitor.check() == LoadDecision.PAUSE
+
+
+def test_should_pause_when_memory_warn():
+    monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
+    with patch.object(monitor, "_get_memory_pressure", return_value="warn"), \
+         patch.object(monitor, "_get_cpu_idle", return_value=80.0):
+        assert monitor.check() == LoadDecision.PAUSE
+
+
+def test_should_stop_when_memory_critical():
+    monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
+    with patch.object(monitor, "_get_memory_pressure", return_value="critical"), \
+         patch.object(monitor, "_get_cpu_idle", return_value=80.0):
+        assert monitor.check() == LoadDecision.STOP
+
+
+def test_time_limit_not_reached():
+    monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
+    with patch("photo_memory.load_monitor.datetime") as mock_dt:
+        from datetime import datetime
+        mock_dt.now.return_value = datetime(2026, 4, 5, 3, 0)  # 3 AM
+        assert monitor.is_past_deadline(end_hour=7) is False
+
+
+def test_time_limit_reached():
+    monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
+    with patch("photo_memory.load_monitor.datetime") as mock_dt:
+        from datetime import datetime
+        mock_dt.now.return_value = datetime(2026, 4, 5, 7, 1)  # 7:01 AM
+        assert monitor.is_past_deadline(end_hour=7) is True
