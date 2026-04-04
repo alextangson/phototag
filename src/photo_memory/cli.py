@@ -77,6 +77,7 @@ def run(ctx):
                 ollama_config=config["ollama"],
                 tmp_dir=tmp_dir,
                 end_hour=config["schedule"]["end_hour"],
+                start_hour=config["schedule"]["start_hour"],
             )
             db.end_run(run_id, stats["processed"], stats.get("skipped", 0),
                        stats["errored"], stats["stop_reason"])

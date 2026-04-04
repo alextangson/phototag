@@ -31,17 +31,35 @@ def test_should_stop_when_memory_critical():
         assert monitor.check() == LoadDecision.STOP
 
 
-def test_time_limit_not_reached():
+def test_time_limit_not_reached_during_run():
     monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
     with patch("photo_memory.load_monitor.datetime") as mock_dt:
         from datetime import datetime
-        mock_dt.now.return_value = datetime(2026, 4, 5, 3, 0)  # 3 AM
-        assert monitor.is_past_deadline(end_hour=7) is False
+        mock_dt.now.return_value = datetime(2026, 4, 5, 3, 0)  # 3 AM — running
+        assert monitor.is_past_deadline(end_hour=7, start_hour=1) is False
 
 
-def test_time_limit_reached():
+def test_time_limit_reached_morning():
     monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
     with patch("photo_memory.load_monitor.datetime") as mock_dt:
         from datetime import datetime
-        mock_dt.now.return_value = datetime(2026, 4, 5, 7, 1)  # 7:01 AM
-        assert monitor.is_past_deadline(end_hour=7) is True
+        mock_dt.now.return_value = datetime(2026, 4, 5, 7, 1)  # 7:01 AM — past deadline
+        assert monitor.is_past_deadline(end_hour=7, start_hour=1) is True
+
+
+def test_time_limit_not_reached_evening_manual_run():
+    """Running manually at 10 PM should NOT trigger deadline."""
+    monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
+    with patch("photo_memory.load_monitor.datetime") as mock_dt:
+        from datetime import datetime
+        mock_dt.now.return_value = datetime(2026, 4, 5, 22, 0)  # 10 PM
+        assert monitor.is_past_deadline(end_hour=7, start_hour=1) is False
+
+
+def test_time_limit_before_start_hour():
+    """Midnight (before start_hour) should NOT trigger deadline."""
+    monitor = LoadMonitor(max_memory_pressure="warn", min_cpu_idle=30)
+    with patch("photo_memory.load_monitor.datetime") as mock_dt:
+        from datetime import datetime
+        mock_dt.now.return_value = datetime(2026, 4, 5, 0, 30)  # 0:30 AM
+        assert monitor.is_past_deadline(end_hour=7, start_hour=1) is False

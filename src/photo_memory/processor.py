@@ -134,13 +134,14 @@ def process_one_photo(db: Database, photo_row: dict, ollama_config: dict,
 
 
 def process_batch(db: Database, monitor: LoadMonitor, check_interval: int,
-                  ollama_config: dict, tmp_dir: str, end_hour: int) -> dict:
+                  ollama_config: dict, tmp_dir: str, end_hour: int,
+                  start_hour: int = 1) -> dict:
     """Process a batch of pending photos with adaptive load control.
     Returns stats dict with processed, skipped, errored, stop_reason.
     """
     stats = {"processed": 0, "skipped": 0, "errored": 0, "stop_reason": "completed"}
 
-    if monitor.is_past_deadline(end_hour):
+    if monitor.is_past_deadline(end_hour, start_hour):
         stats["stop_reason"] = "time_limit"
         return stats
 
@@ -156,7 +157,7 @@ def process_batch(db: Database, monitor: LoadMonitor, check_interval: int,
             break
 
         for photo_row in pending:
-            if monitor.is_past_deadline(end_hour):
+            if monitor.is_past_deadline(end_hour, start_hour):
                 stats["stop_reason"] = "time_limit"
                 return stats
 

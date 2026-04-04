@@ -34,9 +34,30 @@ class LoadMonitor:
 
         return LoadDecision.CONTINUE
 
-    def is_past_deadline(self, end_hour: int) -> bool:
+    def is_past_deadline(self, end_hour: int, start_hour: int = 1) -> bool:
+        """Check if current time is past the deadline.
+
+        The valid run window is [start_hour, end_hour). Outside this window
+        we do NOT enforce the deadline — so manual runs at any time work fine.
+        Only within the run window do we check if we've passed end_hour.
+
+        Example: start_hour=1, end_hour=7
+          - 0:30  → outside window → False (allow manual run)
+          - 3:00  → inside window, before deadline → False
+          - 7:01  → inside window, past deadline → True
+          - 22:00 → outside window → False (allow manual run)
+        """
         now = datetime.now()
-        return now.hour >= end_hour
+        hour = now.hour
+        # Only enforce deadline if we're in the run window [start_hour, end_hour]
+        if start_hour <= hour < end_hour:
+            return False  # still within window
+        elif hour >= end_hour and hour < end_hour + 2:
+            # Grace period: just past deadline (e.g. 7-9 AM), enforce stop
+            return True
+        else:
+            # Outside run window entirely (evening, night) — don't block
+            return False
 
     def _get_memory_pressure(self) -> str:
         try:
