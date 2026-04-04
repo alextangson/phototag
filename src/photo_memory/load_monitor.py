@@ -23,10 +23,13 @@ class LoadMonitor:
         mem_pressure = self._get_memory_pressure()
         cpu_idle = self._get_cpu_idle()
 
-        if PRESSURE_LEVELS.get(mem_pressure, 2) >= PRESSURE_LEVELS["critical"]:
+        mem_level = PRESSURE_LEVELS.get(mem_pressure, 0)
+        threshold = PRESSURE_LEVELS.get(self.max_memory_pressure, 1)
+
+        if mem_level > threshold:
             return LoadDecision.STOP
 
-        if PRESSURE_LEVELS.get(mem_pressure, 0) >= PRESSURE_LEVELS[self.max_memory_pressure]:
+        if mem_level == threshold:
             return LoadDecision.PAUSE
 
         if cpu_idle < self.min_cpu_idle:
