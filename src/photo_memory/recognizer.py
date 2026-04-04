@@ -9,33 +9,28 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-RECOGNITION_PROMPT = """分析这张照片，返回严格的 JSON 格式（不要其他文字）：
+RECOGNITION_PROMPT = """分析这张图片，返回严格的 JSON 格式（不要其他文字）：
 {
-  "description": "一句话中文描述照片内容",
-  "tags": ["层级1/层级2", "层级1/层级2"],
+  "description": "一句话中文描述内容",
+  "tags": ["自由标签1", "自由标签2", "..."],
+  "people_count": 0,
+  "animals": [],
+  "objects": [],
+  "location_type": "indoor|outdoor|vehicle|studio|其他",
+  "activity": "描述正在进行的活动",
+  "mood": "开心|平静|正式|热闹|安静|紧张|其他",
+  "time_of_day": "白天|夜晚|黄昏|清晨|室内无法判断",
   "media_type": "photo|screenshot|document|video_frame",
-  "scene": "indoor|outdoor|screenshot|document",
+  "scene_type": "日常记录|B-roll|口播|屏幕录制|产品展示|活动现场|风景|人像|美食|其他",
   "importance": "high|medium|low",
-  "has_text": true/false,
-  "text_summary": "如果 has_text=true，提取关键文字信息，否则为空"
+  "has_text": false,
+  "text_summary": "如果has_text为true，提取关键文字信息",
+  "colors": ["主要颜色"],
+  "quality_notes": "清晰|模糊|过曝|偏暗|正常"
 }
+tags 不限于固定分类，自由发挥，尽可能多地描述内容特征，中文标签。"""
 
-标签使用层级格式 "大类/小类"，从以下体系中选择：
-- 人物/自拍、人物/合照、人物/证件照、人物/活动
-- 风景/自然、风景/城市、风景/海边、风景/山景
-- 美食/餐厅、美食/自制、美食/甜点、美食/饮品
-- 旅行/国内、旅行/海外、旅行/酒店、旅行/交通
-- 宠物/猫、宠物/狗、宠物/其他
-- 生活/家居、生活/购物、生活/健身、生活/娱乐
-- 工作/会议、工作/白板、工作/代码、工作/办公
-- 截屏/手机截屏、截屏/电脑截屏、截屏/游戏
-- 聊天记录/微信、聊天记录/iMessage、聊天记录/钉钉、聊天记录/飞书、聊天记录/其他
-- 文档/扫描件、文档/名片、文档/收据、文档/证件、文档/二维码
-- 活动/生日、活动/婚礼、活动/聚餐、活动/演出、活动/毕业
-- 其他
-可以同时输出多个标签。如果不确定，使用 "其他"。"""
-
-REQUIRED_FIELDS = {"description", "tags", "media_type", "scene", "importance", "has_text", "text_summary"}
+REQUIRED_FIELDS = {"description", "tags", "media_type", "importance", "has_text", "text_summary"}
 
 
 def parse_ai_response(raw: str) -> dict:
@@ -73,11 +68,20 @@ def parse_ai_response(raw: str) -> dict:
     return {
         "description": raw[:200],
         "tags": ["其他"],
+        "people_count": 0,
+        "animals": [],
+        "objects": [],
+        "location_type": "其他",
+        "activity": "",
+        "mood": "",
+        "time_of_day": "",
         "media_type": "photo",
-        "scene": "outdoor",
+        "scene_type": "其他",
         "importance": "low",
         "has_text": False,
         "text_summary": "",
+        "colors": [],
+        "quality_notes": "正常",
     }
 
 
@@ -111,3 +115,67 @@ def recognize_photo(image_path: str, host: str, model: str, timeout: int,
         logger.info(f"Retry {attempt + 1}: AI returned unparseable response, retrying...")
 
     return result
+
+
+def summarize_video_frames(frame_results: list[dict], transcript: str = "") -> dict:
+    """Summarize multiple frame analysis results into one video-level result.
+
+    Merges tags, picks the most common values for categorical fields,
+    and incorporates transcript if available.
+    """
+    if not frame_results:
+        return parse_ai_response("")  # fallback
+
+    # Merge all tags (deduplicate)
+    all_tags = []
+    for r in frame_results:
+        all_tags.extend(r.get("tags", []))
+    merged_tags = list(dict.fromkeys(all_tags))  # preserve order, dedupe
+
+    # Pick most common scene_type
+    from collections import Counter
+    scene_types = [r.get("scene_type", "其他") for r in frame_results]
+    most_common_scene = Counter(scene_types).most_common(1)[0][0]
+
+    # Merge objects and animals
+    all_objects = []
+    all_animals = []
+    for r in frame_results:
+        all_objects.extend(r.get("objects", []))
+        all_animals.extend(r.get("animals", []))
+    merged_objects = list(dict.fromkeys(all_objects))
+    merged_animals = list(dict.fromkeys(all_animals))
+
+    # Max people count across frames
+    max_people = max((r.get("people_count", 0) for r in frame_results), default=0)
+
+    # Use first frame's description as base, append transcript summary
+    description = frame_results[0].get("description", "")
+    if transcript:
+        description += f"（语音内容：{transcript[:100]}）"
+        # Add transcript-derived tags
+        merged_tags.append("有语音")
+
+    # Determine importance — videos with speech tend to be more important
+    importance = "medium"
+    if transcript and len(transcript) > 10:
+        importance = "high"
+
+    return {
+        "description": description,
+        "tags": merged_tags[:20],  # cap at 20 tags
+        "people_count": max_people,
+        "animals": merged_animals,
+        "objects": merged_objects,
+        "location_type": frame_results[0].get("location_type", "其他"),
+        "activity": frame_results[0].get("activity", ""),
+        "mood": frame_results[0].get("mood", ""),
+        "time_of_day": frame_results[0].get("time_of_day", ""),
+        "media_type": "video_frame",
+        "scene_type": most_common_scene,
+        "importance": importance,
+        "has_text": any(r.get("has_text", False) for r in frame_results),
+        "text_summary": transcript[:500] if transcript else "",
+        "colors": frame_results[0].get("colors", []),
+        "quality_notes": frame_results[0].get("quality_notes", "正常"),
+    }

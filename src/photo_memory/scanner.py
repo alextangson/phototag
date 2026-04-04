@@ -16,7 +16,7 @@ def scan_photos_into_db(db: Database, photos_db_path: str | None = None) -> int:
     logger.info("Opening Photos library...")
     photosdb = osxphotos.PhotosDB(dbfile=photos_db_path) if photos_db_path else osxphotos.PhotosDB()
 
-    photos = photosdb.photos(images=True, movies=False)
+    photos = photosdb.photos(images=True, movies=True)
     logger.info(f"Found {len(photos)} photos in library")
 
     new_count = 0

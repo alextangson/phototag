@@ -1,7 +1,7 @@
 import json
 import pytest
 from unittest.mock import patch, MagicMock
-from photo_memory.recognizer import recognize_photo, parse_ai_response, RECOGNITION_PROMPT
+from photo_memory.recognizer import recognize_photo, parse_ai_response, RECOGNITION_PROMPT, summarize_video_frames
 
 
 def test_parse_valid_json_response():
@@ -98,3 +98,35 @@ def test_recognize_photo_retries_on_bad_json(tmp_path):
         result = recognize_photo(str(img_path), host="http://localhost:11434",
                                  model="gemma4:e4b", timeout=60)
     assert result["description"] == "重试成功"
+
+
+def test_summarize_video_frames():
+    frames = [
+        {"description": "风景画面", "tags": ["自然", "湖泊"], "scene_type": "B-roll",
+         "people_count": 0, "animals": [], "objects": ["山"], "location_type": "outdoor",
+         "activity": "", "mood": "平静", "time_of_day": "白天", "media_type": "video_frame",
+         "importance": "medium", "has_text": False, "text_summary": "", "colors": ["蓝"], "quality_notes": "清晰"},
+        {"description": "湖面", "tags": ["自然", "水面", "倒影"], "scene_type": "B-roll",
+         "people_count": 0, "animals": [], "objects": ["湖"], "location_type": "outdoor",
+         "activity": "", "mood": "平静", "time_of_day": "白天", "media_type": "video_frame",
+         "importance": "medium", "has_text": False, "text_summary": "", "colors": ["蓝"], "quality_notes": "清晰"},
+    ]
+    result = summarize_video_frames(frames, transcript="")
+    assert "自然" in result["tags"]
+    assert "湖泊" in result["tags"]
+    assert "水面" in result["tags"]  # merged from frame 2
+    assert result["scene_type"] == "B-roll"
+    assert result["importance"] == "medium"
+
+
+def test_summarize_video_frames_with_transcript():
+    frames = [
+        {"description": "人在说话", "tags": ["人物", "口播"], "scene_type": "口播",
+         "people_count": 1, "animals": [], "objects": [], "location_type": "indoor",
+         "activity": "说话", "mood": "平静", "time_of_day": "室内无法判断", "media_type": "video_frame",
+         "importance": "medium", "has_text": False, "text_summary": "", "colors": [], "quality_notes": "清晰"},
+    ]
+    result = summarize_video_frames(frames, transcript="今天聊一下AI创业的几个关键点")
+    assert "有语音" in result["tags"]
+    assert "AI创业" in result["text_summary"]
+    assert result["importance"] == "high"  # has meaningful speech

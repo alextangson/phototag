@@ -7,10 +7,17 @@ import os
 from photo_memory.db import Database
 from photo_memory.dedup import compute_phash
 from photo_memory.load_monitor import LoadDecision, LoadMonitor
-from photo_memory.recognizer import recognize_photo
+from photo_memory.recognizer import recognize_photo, summarize_video_frames
 from photo_memory.tagger import apply_tags_to_photo
+from photo_memory.video_extractor import extract_frames, extract_audio, transcribe_audio
 
 logger = logging.getLogger(__name__)
+
+VIDEO_EXTENSIONS = {".mov", ".mp4", ".m4v", ".avi", ".mkv"}
+
+
+def _is_video(file_path: str) -> bool:
+    return os.path.splitext(file_path)[1].lower() in VIDEO_EXTENSIONS
 
 
 def export_photo(uuid: str, file_path: str, tmp_dir: str) -> str | None:
@@ -46,14 +53,59 @@ def process_one_photo(db: Database, photo_row: dict, ollama_config: dict,
             db.update_photo_status(uuid, "error", error_msg="Export failed - file not accessible")
             return False
 
-        phash = compute_phash(exported_path)
+        if exported_path and _is_video(exported_path):
+            # Video processing: extract frames + audio
+            import shutil
+            frames_dir = os.path.join(tmp_dir, f"frames_{uuid}")
+            frames = extract_frames(exported_path, frames_dir)
 
-        result = recognize_photo(
-            exported_path,
-            host=ollama_config["host"],
-            model=ollama_config["model"],
-            timeout=ollama_config["timeout"],
-        )
+            if not frames:
+                db.update_photo_status(uuid, "error", error_msg="Frame extraction failed")
+                return False
+
+            # Compute phash from first frame
+            phash = compute_phash(frames[0])
+
+            # Recognize each frame
+            frame_results = []
+            for frame_path in frames[:6]:  # max 6 frames to avoid overloading
+                try:
+                    frame_result = recognize_photo(
+                        frame_path,
+                        host=ollama_config["host"],
+                        model=ollama_config["model"],
+                        timeout=ollama_config["timeout"],
+                    )
+                    frame_results.append(frame_result)
+                except Exception as e:
+                    logger.warning(f"Frame recognition failed: {e}")
+
+            # Transcribe audio
+            audio_path = os.path.join(tmp_dir, f"audio_{uuid}.wav")
+            transcript = ""
+            audio_file = extract_audio(exported_path, audio_path)
+            if audio_file:
+                whisper_result = transcribe_audio(audio_file)
+                transcript = whisper_result.get("text", "")
+                # Clean up audio file
+                if os.path.exists(audio_path):
+                    os.remove(audio_path)
+
+            # Summarize
+            result = summarize_video_frames(frame_results, transcript)
+
+            # Clean up frames
+            if os.path.exists(frames_dir):
+                shutil.rmtree(frames_dir)
+        else:
+            # Photo processing
+            phash = compute_phash(exported_path)
+            result = recognize_photo(
+                exported_path,
+                host=ollama_config["host"],
+                model=ollama_config["model"],
+                timeout=ollama_config["timeout"],
+            )
 
         try:
             apply_tags_to_photo(uuid, result)
