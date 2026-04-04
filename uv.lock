@@ -456,7 +456,7 @@ wheels = [
 [[package]]
 name = "photo-memory"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "click", marker = "platform_release >= '22.0' and sys_platform == 'darwin'" },
     { name = "imagehash", marker = "platform_release >= '22.0' and sys_platform == 'darwin'" },
