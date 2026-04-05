@@ -16,6 +16,11 @@ from photo_memory.people import build_people
 from photo_memory.load_monitor import LoadMonitor
 from photo_memory.processor import process_batch
 from photo_memory.scanner import scan_photos_into_db
+from photo_memory.story import (
+    generate_person_story,
+    generate_year_story,
+    generate_relationship_story,
+)
 
 logger = logging.getLogger("photo_memory")
 
@@ -327,6 +332,49 @@ def people(ctx, name_args, min_photos):
             click.echo(f"  phototag people --name {p['face_cluster_id']} \"名字\"")
 
     db.close()
+
+
+@main.command()
+@click.option("--person", "person_name", type=str, default=None,
+              help="Generate a person's timeline story")
+@click.option("--year", "year", type=int, default=None,
+              help="Generate a year-in-review story")
+@click.option("--relationship", "relationship_name", type=str, default=None,
+              help="Generate a relationship-framed story")
+@click.option("--output", "output_path", type=click.Path(), default=None,
+              help="Write story to file instead of stdout (.md)")
+@click.pass_context
+def story(ctx, person_name, year, relationship_name, output_path):
+    """Generate a Markdown story from L2 events and people."""
+    modes = [person_name, year, relationship_name]
+    mode_count = sum(1 for m in modes if m is not None)
+
+    if mode_count == 0:
+        click.echo("错误：需要指定 --person / --year / --relationship 之一", err=True)
+        raise SystemExit(1)
+    if mode_count > 1:
+        click.echo("错误：--person / --year / --relationship 只能选一个", err=True)
+        raise SystemExit(1)
+
+    config = ctx.obj["config"]
+    db_path = os.path.join(config["data_dir"], "progress.db")
+    db = Database(db_path)
+
+    if person_name:
+        markdown = generate_person_story(db, person_name, ollama_config=config["ollama"])
+    elif year:
+        markdown = generate_year_story(db, year, ollama_config=config["ollama"])
+    else:
+        markdown = generate_relationship_story(db, relationship_name, ollama_config=config["ollama"])
+
+    db.close()
+
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(markdown)
+        click.echo(f"Story written to {output_path}")
+    else:
+        click.echo(markdown)
 
 
 @main.command()

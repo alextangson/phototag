@@ -155,3 +155,89 @@ def test_people_name_command_sets_user_name(tmp_path, sample_config):
     row = db.execute("SELECT user_name FROM people WHERE face_cluster_id = ?", ("fc_001",)).fetchone()
     assert row["user_name"] == "李四"
     db.close()
+
+
+def test_story_year_command_outputs_markdown(tmp_path, sample_config):
+    from unittest.mock import patch
+    from click.testing import CliRunner
+    from photo_memory.cli import main
+    from photo_memory.db import Database
+
+    config, config_path = sample_config
+    config["data_dir"] = str(tmp_path)
+    db_path = str(tmp_path / "progress.db")
+
+    db = Database(db_path)
+    db.upsert_event(
+        event_id="e1", start_time="2024-05-15T12:00:00", end_time="2024-05-15T13:00:00",
+        location_city="北京", location_state=None, photo_count=3,
+        face_cluster_ids='[]', summary="颐和园", mood="愉快", cover_photo_uuid="p1",
+    )
+    db.close()
+
+    runner = CliRunner()
+    with patch("photo_memory.cli.load_config", return_value=config), \
+         patch("photo_memory.story.generate_period_narrative", return_value="春日回忆"):
+        result = runner.invoke(main, ["--config", config_path, "story", "--year", "2024"])
+
+    assert result.exit_code == 0
+    assert "2024 年度回忆" in result.output
+    assert "春日回忆" in result.output
+
+
+def test_story_person_command_with_output_file(tmp_path, sample_config):
+    from unittest.mock import patch
+    from click.testing import CliRunner
+    from photo_memory.cli import main
+    from photo_memory.db import Database
+
+    config, config_path = sample_config
+    config["data_dir"] = str(tmp_path)
+    db_path = str(tmp_path / "progress.db")
+
+    db = Database(db_path)
+    db.upsert_person(
+        face_cluster_id="fc_001", apple_name="张三", user_name=None,
+        photo_count=5, event_count=2,
+        first_seen="2024-01-01T12:00:00", last_seen="2024-06-01T12:00:00",
+        co_appearances="{}", top_locations="[]", appearance_trend="stable",
+    )
+    db.upsert_event(
+        event_id="e1", start_time="2024-01-15T12:00:00", end_time="2024-01-15T13:00:00",
+        location_city="北京", location_state=None, photo_count=3,
+        face_cluster_ids='["fc_001"]', summary="颐和园", mood="愉快", cover_photo_uuid="p1",
+    )
+    db.close()
+
+    output_file = tmp_path / "story.md"
+    runner = CliRunner()
+    with patch("photo_memory.cli.load_config", return_value=config), \
+         patch("photo_memory.story.generate_period_narrative", return_value="一段回忆"):
+        result = runner.invoke(main, [
+            "--config", config_path, "story",
+            "--person", "张三",
+            "--output", str(output_file),
+        ])
+
+    assert result.exit_code == 0
+    assert output_file.exists()
+    content = output_file.read_text()
+    assert "和张三的回忆" in content
+    assert "一段回忆" in content
+
+
+def test_story_requires_one_mode(tmp_path, sample_config):
+    """Running `phototag story` without --person/--year/--relationship should error."""
+    from unittest.mock import patch
+    from click.testing import CliRunner
+    from photo_memory.cli import main
+
+    config, config_path = sample_config
+    config["data_dir"] = str(tmp_path)
+
+    runner = CliRunner()
+    with patch("photo_memory.cli.load_config", return_value=config):
+        result = runner.invoke(main, ["--config", config_path, "story"])
+
+    assert result.exit_code != 0
+    assert "需要指定" in result.output or "required" in result.output.lower()
