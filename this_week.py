@@ -31,7 +31,10 @@ def scan_this_week_photos() -> dict[int, list]:
 
     # Noise apps — photos from these are almost never worth revisiting
     noise_apps = {"淘宝", "闲鱼", "京东", "拼多多", "菜鸟", "顺丰", "饿了么", "美团",
-                  "支付宝", "钉钉", "企业微信", "文件"}
+                  "支付宝", "钉钉", "企业微信", "文件", "飞书"}
+    # Apple labels that indicate screenshots/documents (screenshot flag is unreliable)
+    noise_labels = {"个人数字助理", "小装置", "工具", "文稿", "网页", "软件", "屏幕截图",
+                    "收据", "菜单", "标志"}
 
     by_year = {}
     skipped = 0
@@ -40,12 +43,21 @@ def scan_this_week_photos() -> dict[int, list]:
             continue
         if not p.path or not os.path.isfile(p.path):
             continue
-        # Filter out noise: screenshots, documents, utility app imports
+
+        # Filter 1: Apple screenshot flag
         if p.screenshot:
             skipped += 1
             continue
+
+        # Filter 2: Noise apps
         source = p._info.get("imported_by_display_name", "") or ""
         if source in noise_apps:
+            skipped += 1
+            continue
+
+        # Filter 3: Apple labels indicate screenshot/document
+        photo_labels = set(p.labels) if p.labels else set()
+        if photo_labels & noise_labels:
             skipped += 1
             continue
         d = p.date
@@ -125,12 +137,17 @@ def cluster_into_events(photos: list, time_gap_hours: float = 2.0) -> list[dict]
             "fallback_title": fallback_title,
             "title": fallback_title,
             "description": "",
-            # Score: people > landscape > other (for sorting)
-            "interest_score": len(face_names) * 10 + len(event_photos),
+            # Score for sorting: people > landscape > other
+            "has_faces": len(face_names) > 0,
+            "face_count": sum(len(p.person_info) for p in event_photos),
         })
 
-    # Sort events: most interesting first (people, then size)
-    result.sort(key=lambda e: e["interest_score"], reverse=True)
+    # Sort: named faces first, then any faces, then by photo count
+    result.sort(key=lambda e: (
+        e["has_faces"],           # events with named people first
+        e["face_count"],          # more faces = more interesting
+        e["photo_count"],         # bigger events next
+    ), reverse=True)
     return result
 
 
