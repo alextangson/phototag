@@ -109,9 +109,16 @@ PERIOD_NARRATIVE_PROMPT = """你是一个温暖的回忆讲述者。基于以下
 
 时间段：{period_label}
 事件数：{event_count}
+出现的人物：{people}
 
-事件列表：
+事件列表（每行可能附带在场人物）：
 {events_text}
+
+严禁事项：
+- 不要凭空推测医疗/诊疗/护理/治疗等场景，除非描述中明确出现「医院」「诊所」「病房」「医生」等词
+- 美容/理发/美发/美甲/spa 等生活服务场景，不要误读为医疗或照护
+- 如果描述模糊或只有"室内空间""防护装备"等宽泛信息，就保持泛化，不要具体化为敏感场景
+- 如果某个事件提供了在场人物，请在叙事中用真实人名而不是"朋友"等泛称
 
 返回严格 JSON 格式（不要其他文字）：
 {{
@@ -134,18 +141,24 @@ def generate_period_narrative(
         return ""
 
     events_text_lines = []
+    all_people = set()
     for i, e in enumerate(events, 1):
         date = (e.get("start_time") or "")[:10]
         location = e.get("location_city") or "某地"
         summary = e.get("summary") or ""
         mood = e.get("mood") or ""
         mood_str = f"（{mood}）" if mood else ""
-        events_text_lines.append(f"{i}. [{date}] {location}{mood_str}：{summary}")
+        names = e.get("person_names") or []
+        all_people.update(names)
+        name_str = f" [在场：{('、'.join(names))}]" if names else ""
+        events_text_lines.append(f"{i}. [{date}] {location}{mood_str}{name_str}：{summary}")
     events_text = "\n".join(events_text_lines)
+    people_summary = "、".join(sorted(all_people)) if all_people else "（无命名人物）"
 
     prompt = PERIOD_NARRATIVE_PROMPT.format(
         period_label=period_label or "全部时间",
         event_count=len(events),
+        people=people_summary,
         events_text=events_text,
     )
 
@@ -166,6 +179,33 @@ def generate_period_narrative(
 
     # Fallback: join event summaries
     return "；".join(e.get("summary") or "" for e in events if e.get("summary"))
+
+
+def _attach_person_names(db, events: list[dict]) -> list[dict]:
+    """Mutate-and-return events with a 'person_names' list resolved from face_cluster_ids."""
+    name_map: dict[str, str] = {}
+    try:
+        for p in db.get_all_people():
+            name = p.get("user_name") or p.get("apple_name")
+            if name:
+                name_map[p["face_cluster_id"]] = name
+    except Exception as e:
+        logger.warning(f"Could not load people name map: {e}")
+        return events
+
+    for e in events:
+        raw = e.get("face_cluster_ids")
+        if not raw:
+            e["person_names"] = []
+            continue
+        try:
+            fc_ids = json.loads(raw) if isinstance(raw, str) else raw
+        except (json.JSONDecodeError, TypeError):
+            e["person_names"] = []
+            continue
+        names = [name_map[fc_id] for fc_id in (fc_ids or []) if fc_id in name_map]
+        e["person_names"] = list(dict.fromkeys(names))
+    return events
 
 
 def _render_story_markdown(title: str, stats_line: str, groups: list[dict],
@@ -203,6 +243,8 @@ def generate_person_story(db, person_name: str, ollama_config: dict) -> str:
     if not events:
         return f"# 和{person_name}的回忆\n\n暂无包含此人的事件记录。"
 
+    _attach_person_names(db, events)
+
     first = (person["first_seen"] or "")[:10]
     last = (person["last_seen"] or "")[:10]
     photo_count = person["photo_count"] or 0
@@ -225,6 +267,8 @@ def generate_year_story(db, year: int, ollama_config: dict) -> str:
     events = db.get_events_in_year(year)
     if not events:
         return f"# {year} 年度回忆\n\n这一年暂无事件记录。"
+
+    _attach_person_names(db, events)
 
     photo_total = sum(e.get("photo_count") or 0 for e in events)
     cities = {e.get("location_city") for e in events if e.get("location_city")}
@@ -250,6 +294,8 @@ def generate_relationship_story(db, person_name: str, ollama_config: dict) -> st
     events = db.get_events_for_person(person["face_cluster_id"])
     if not events:
         return f"# 和{person_name}在一起的日子\n\n暂无事件记录。"
+
+    _attach_person_names(db, events)
 
     first_dt = _parse_date(person["first_seen"])
     last_dt = _parse_date(person["last_seen"])
@@ -288,6 +334,8 @@ def build_year_html(db, year: int, ollama_config: dict) -> str:
             intro_narrative="这一年暂无事件记录。",
             events_with_photos=[],
         )
+
+    _attach_person_names(db, events)
 
     events_with_photos = []
     for e in events:
@@ -339,6 +387,8 @@ def build_person_html(db, person_name: str, ollama_config: dict) -> str:
                 all_events.append(e)
                 seen.add(e["event_id"])
     all_events.sort(key=lambda e: e.get("start_time") or "")
+
+    _attach_person_names(db, all_events)
 
     events_with_photos = []
     for e in all_events:

@@ -161,10 +161,17 @@ EVENT_SUMMARY_PROMPT = """基于以下事件中多张照片的描述信息，生
 事件信息：
 - 时间：{start_time} ~ {end_time}
 - 地点：{location}
+- 在场人物：{people}
 - 照片数：{photo_count}
 
 照片描述（按时间顺序）：
 {narratives}
+
+严禁事项：
+- 不要凭空推测医疗/诊疗/护理/治疗等场景，除非描述中明确出现「医院」「诊所」「病房」「医生」等词
+- 美容/理发/美发/美甲/spa 等生活服务场景，不要误读为医疗或照护
+- 如果描述模糊或只有「室内空间」「防护装备」等宽泛信息，就保持泛化（"某个室内场合"），不要具体化为敏感场景
+- 如果提供了「在场人物」，摘要中请用真实人名而不是"朋友"等泛称
 
 返回严格 JSON 格式（不要其他文字）：
 {{
@@ -190,11 +197,14 @@ def summarize_event(event: dict, host: str, model: str, timeout: int) -> dict:
 
     narratives_text = "\n".join(narratives) if narratives else "(无详细描述)"
     location = event.get("location_city") or "未知地点"
+    person_names = event.get("person_names") or []
+    people_str = "、".join(person_names) if person_names else "（未命名或无人）"
 
     prompt = EVENT_SUMMARY_PROMPT.format(
         start_time=event["start_time"],
         end_time=event["end_time"],
         location=location,
+        people=people_str,
         photo_count=len(event["photos"]),
         narratives=narratives_text,
     )
@@ -247,8 +257,25 @@ def build_events(db, ollama_config: dict, gap_minutes: int = 30) -> int:
     raw_events = slice_into_events(photos, gap_minutes=gap_minutes)
     logger.info(f"Sliced into {len(raw_events)} events")
 
+    # Build fc_id → name map once for this run
+    name_map: dict[str, str] = {}
+    try:
+        all_people = db.get_all_people()
+        for p in all_people:
+            name = p.get("user_name") or p.get("apple_name")
+            if name:
+                name_map[p["face_cluster_id"]] = name
+    except Exception as e:
+        logger.warning(f"Could not load people name map: {e}")
+
     for event in raw_events:
         enriched = enrich_event_metadata(event)
+        # Resolve names for this event's face clusters
+        person_names = list(dict.fromkeys(
+            name_map[fc_id] for fc_id in enriched["face_cluster_ids"] if fc_id in name_map
+        ))
+        enriched["person_names"] = person_names
+
         summary_data = summarize_event(
             enriched,
             host=ollama_config["host"],
