@@ -15,3 +15,5 @@ wheels/
 
 # macOS
 .DS_Store
+this_week.html
+this_week_feedback.json
