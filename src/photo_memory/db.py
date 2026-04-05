@@ -3,7 +3,7 @@
 import sqlite3
 from datetime import datetime, timezone
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 class Database:
@@ -93,6 +93,45 @@ class Database:
             )
             self._set_schema_version(2)
             self.conn.commit()
+            version = 2
+
+        if version < 3:
+            self.conn.executescript("""
+                CREATE TABLE IF NOT EXISTS events (
+                    event_id TEXT PRIMARY KEY,
+                    start_time TIMESTAMP,
+                    end_time TIMESTAMP,
+                    location_city TEXT,
+                    location_state TEXT,
+                    photo_count INTEGER,
+                    face_cluster_ids TEXT,
+                    summary TEXT,
+                    mood TEXT,
+                    cover_photo_uuid TEXT
+                );
+                CREATE TABLE IF NOT EXISTS event_photos (
+                    event_id TEXT,
+                    photo_uuid TEXT,
+                    PRIMARY KEY (event_id, photo_uuid)
+                );
+                CREATE TABLE IF NOT EXISTS people (
+                    face_cluster_id TEXT PRIMARY KEY,
+                    apple_name TEXT,
+                    user_name TEXT,
+                    photo_count INTEGER,
+                    event_count INTEGER,
+                    first_seen TIMESTAMP,
+                    last_seen TIMESTAMP,
+                    co_appearances TEXT,
+                    top_locations TEXT,
+                    appearance_trend TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_time);
+                CREATE INDEX IF NOT EXISTS idx_event_photos_photo ON event_photos(photo_uuid);
+            """)
+            self._set_schema_version(3)
+            self.conn.commit()
+            version = 3
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         return self.conn.execute(sql, params)
@@ -192,6 +231,88 @@ class Database:
         )
         self.conn.commit()
         return cursor.rowcount
+
+    def upsert_event(self, event_id: str, **kwargs):
+        existing = self.conn.execute(
+            "SELECT event_id FROM events WHERE event_id = ?", (event_id,)
+        ).fetchone()
+        if existing:
+            sets = ", ".join(f"{k} = ?" for k in kwargs)
+            self.conn.execute(
+                f"UPDATE events SET {sets} WHERE event_id = ?",
+                (*kwargs.values(), event_id),
+            )
+        else:
+            cols = ["event_id"] + list(kwargs.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            col_names = ", ".join(cols)
+            self.conn.execute(
+                f"INSERT INTO events ({col_names}) VALUES ({placeholders})",
+                (event_id, *kwargs.values()),
+            )
+        self.conn.commit()
+
+    def link_photos_to_event(self, event_id: str, photo_uuids: list[str]):
+        for uuid in photo_uuids:
+            self.conn.execute(
+                "INSERT OR IGNORE INTO event_photos (event_id, photo_uuid) VALUES (?, ?)",
+                (event_id, uuid),
+            )
+        self.conn.commit()
+
+    def get_event_photos(self, event_id: str) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM event_photos WHERE event_id = ?", (event_id,)
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_all_events(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM events ORDER BY start_time DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def upsert_person(self, face_cluster_id: str, **kwargs):
+        existing = self.conn.execute(
+            "SELECT face_cluster_id FROM people WHERE face_cluster_id = ?",
+            (face_cluster_id,),
+        ).fetchone()
+        if existing:
+            sets = ", ".join(f"{k} = ?" for k in kwargs)
+            self.conn.execute(
+                f"UPDATE people SET {sets} WHERE face_cluster_id = ?",
+                (*kwargs.values(), face_cluster_id),
+            )
+        else:
+            cols = ["face_cluster_id"] + list(kwargs.keys())
+            placeholders = ", ".join(["?"] * len(cols))
+            col_names = ", ".join(cols)
+            self.conn.execute(
+                f"INSERT INTO people ({col_names}) VALUES ({placeholders})",
+                (face_cluster_id, *kwargs.values()),
+            )
+        self.conn.commit()
+
+    def get_all_people(self) -> list[dict]:
+        rows = self.conn.execute(
+            "SELECT * FROM people ORDER BY photo_count DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_person_user_name(self, face_cluster_id: str, user_name: str):
+        self.conn.execute(
+            "UPDATE people SET user_name = ? WHERE face_cluster_id = ?",
+            (user_name, face_cluster_id),
+        )
+        self.conn.commit()
+
+    def get_done_photos_ordered(self) -> list[dict]:
+        """Get all done photos ordered by date_taken ASC for aggregation."""
+        rows = self.conn.execute(
+            "SELECT * FROM photos WHERE status = 'done' AND date_taken IS NOT NULL "
+            "ORDER BY date_taken ASC"
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def close(self):
         self.conn.close()

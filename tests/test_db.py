@@ -174,3 +174,79 @@ def test_migration_from_v1_adds_columns(tmp_db_path):
     ver = db.execute("SELECT version FROM schema_version").fetchone()
     assert ver["version"] >= 2
     db.close()
+
+
+def test_schema_v3_creates_events_tables(tmp_db_path):
+    db = Database(tmp_db_path)
+    tables = db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    table_names = {row[0] for row in tables}
+    assert "events" in table_names
+    assert "event_photos" in table_names
+    assert "people" in table_names
+    ver = db.execute("SELECT version FROM schema_version").fetchone()
+    assert ver["version"] >= 3
+    db.close()
+
+
+def test_upsert_event_and_link_photos(tmp_db_path):
+    db = Database(tmp_db_path)
+    db.upsert_photo("photo-1", date_taken="2024-09-28T13:00:00")
+    db.upsert_photo("photo-2", date_taken="2024-09-28T13:15:00")
+
+    db.upsert_event(
+        event_id="evt_001",
+        start_time="2024-09-28T13:00:00",
+        end_time="2024-09-28T13:30:00",
+        location_city="大连市",
+        photo_count=2,
+        face_cluster_ids='["fc_001"]',
+        summary="海边散步",
+        mood="愉快",
+        cover_photo_uuid="photo-1",
+    )
+    db.link_photos_to_event("evt_001", ["photo-1", "photo-2"])
+
+    row = db.execute("SELECT * FROM events WHERE event_id = ?", ("evt_001",)).fetchone()
+    assert row["photo_count"] == 2
+    assert row["location_city"] == "大连市"
+
+    photos = db.get_event_photos("evt_001")
+    assert len(photos) == 2
+    assert {p["photo_uuid"] for p in photos} == {"photo-1", "photo-2"}
+    db.close()
+
+
+def test_upsert_person(tmp_db_path):
+    db = Database(tmp_db_path)
+    db.upsert_person(
+        face_cluster_id="fc_001",
+        apple_name="唐嘉鑫",
+        user_name=None,
+        photo_count=671,
+        event_count=120,
+        first_seen="2015-03-01T12:00:00",
+        last_seen="2026-03-15T18:00:00",
+        co_appearances='{"fc_002": 6}',
+        top_locations='["大连", "深圳"]',
+        appearance_trend="stable",
+    )
+    row = db.execute("SELECT * FROM people WHERE face_cluster_id = ?", ("fc_001",)).fetchone()
+    assert row["apple_name"] == "唐嘉鑫"
+    assert row["photo_count"] == 671
+    assert row["appearance_trend"] == "stable"
+    db.close()
+
+
+def test_get_done_photos_for_aggregation(tmp_db_path):
+    """get_done_photos_ordered returns processed photos sorted by date."""
+    db = Database(tmp_db_path)
+    db.upsert_photo("p-1", date_taken="2024-09-28T13:00:00")
+    db.upsert_photo("p-2", date_taken="2024-09-28T14:00:00")
+    db.upsert_photo("p-3", date_taken="2024-09-27T12:00:00")
+    for uuid in ["p-1", "p-2", "p-3"]:
+        db.update_photo_status(uuid, "done")
+
+    rows = db.get_done_photos_ordered()
+    assert len(rows) == 3
+    assert [r["uuid"] for r in rows] == ["p-3", "p-1", "p-2"]
+    db.close()
