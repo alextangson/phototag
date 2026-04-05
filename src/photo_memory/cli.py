@@ -12,6 +12,7 @@ from photo_memory.config import load_config
 from photo_memory.db import Database
 from photo_memory.dedup import find_duplicate_groups
 from photo_memory.events import build_events
+from photo_memory.people import build_people
 from photo_memory.load_monitor import LoadMonitor
 from photo_memory.processor import process_batch
 from photo_memory.scanner import scan_photos_into_db
@@ -278,6 +279,52 @@ def events(ctx, gap_minutes):
     for e in all_events[:10]:
         city = e["location_city"] or "未知"
         click.echo(f"  [{e['start_time'][:10]}] {city} ({e['photo_count']} 张) — {e['summary'] or '(无摘要)'}")
+
+    db.close()
+
+
+@main.command()
+@click.option("--name", "name_args", nargs=2, type=str, default=None,
+              help="Assign a user name: --name <face_cluster_id> <name>")
+@click.option("--min-photos", default=10, help="Minimum photo count to display")
+@click.pass_context
+def people(ctx, name_args, min_photos):
+    """Build and list the people graph. Use --name to assign a name."""
+    config = ctx.obj["config"]
+    db_path = os.path.join(config["data_dir"], "progress.db")
+    db = Database(db_path)
+
+    if name_args:
+        fc_id, user_name = name_args
+        db.set_person_user_name(fc_id, user_name)
+        click.echo(f"Named {fc_id} as {user_name}")
+        db.close()
+        return
+
+    count = build_people(db)
+    click.echo(f"Processed {count} unique people.\n")
+
+    all_people = db.get_all_people()
+    click.echo("高频人物:")
+    shown = 0
+    for p in all_people:
+        if p["photo_count"] < min_photos:
+            continue
+        name = p["user_name"] or p["apple_name"] or "(未命名)"
+        fc_short = p["face_cluster_id"][:12]
+        first = (p["first_seen"] or "")[:7]
+        last = (p["last_seen"] or "")[:7]
+        trend = p["appearance_trend"] or ""
+        click.echo(f"  {fc_short}... {name} — {p['photo_count']} 张, {first} ~ {last} [{trend}]")
+        shown += 1
+        if shown >= 20:
+            break
+
+    unnamed = [p for p in all_people if not p["user_name"] and not p["apple_name"] and p["photo_count"] >= min_photos]
+    if unnamed:
+        click.echo(f"\n发现 {len(unnamed)} 位高频未命名人物。运行以下命令命名：")
+        for p in unnamed[:3]:
+            click.echo(f"  phototag people --name {p['face_cluster_id']} \"名字\"")
 
     db.close()
 
