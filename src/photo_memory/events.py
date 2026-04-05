@@ -2,6 +2,8 @@
 
 import json
 import logging
+
+import requests
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
@@ -112,4 +114,69 @@ def enrich_event_metadata(event: dict) -> dict:
         "face_cluster_ids": sorted(face_ids),
         "location_city": majority_city,
         "cover_photo_uuid": cover_uuid,
+    }
+
+
+EVENT_SUMMARY_PROMPT = """基于以下事件中多张照片的描述信息，生成一段简洁的事件摘要。
+
+事件信息：
+- 时间：{start_time} ~ {end_time}
+- 地点：{location}
+- 照片数：{photo_count}
+
+照片描述（按时间顺序）：
+{narratives}
+
+返回严格 JSON 格式（不要其他文字）：
+{{
+  "summary": "一段 30-60 字的中文事件摘要，描述这是什么事件、发生了什么",
+  "mood": "整体情绪基调（愉快/紧张/平静/庄重/等）"
+}}"""
+
+
+def summarize_event(event: dict, host: str, model: str, timeout: int) -> dict:
+    """Generate a summary and mood for an event via LLM.
+
+    Falls back to a rule-based summary if LLM call fails.
+    """
+    narratives = []
+    for i, p in enumerate(event["photos"][:20], 1):  # cap at 20 narratives
+        try:
+            ai = json.loads(p.get("ai_result") or "{}")
+            narr = ai.get("narrative", "")
+            if narr:
+                narratives.append(f"{i}. {narr}")
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    narratives_text = "\n".join(narratives) if narratives else "(无详细描述)"
+    location = event.get("location_city") or "未知地点"
+
+    prompt = EVENT_SUMMARY_PROMPT.format(
+        start_time=event["start_time"],
+        end_time=event["end_time"],
+        location=location,
+        photo_count=len(event["photos"]),
+        narratives=narratives_text,
+    )
+
+    try:
+        response = requests.post(
+            f"{host}/api/generate",
+            json={"model": model, "prompt": prompt, "stream": False},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        raw = response.json().get("response", "")
+        data = json.loads(raw)
+        if "summary" in data and "mood" in data:
+            return {"summary": data["summary"], "mood": data["mood"]}
+    except Exception as e:
+        logger.warning(f"Event summary LLM failed for {event.get('event_id')}: {e}")
+
+    # Fallback: use first narrative + location
+    first_narr = narratives[0][3:] if narratives else "一组照片"
+    return {
+        "summary": f"在{location}的一段时光，{first_narr}",
+        "mood": "",
     }

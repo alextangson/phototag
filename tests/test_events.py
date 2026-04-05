@@ -134,3 +134,72 @@ def test_enrich_event_generates_event_id():
     }
     enriched = enrich_event_metadata(event)
     assert enriched["event_id"].startswith("evt_20240928130000_")
+
+
+from unittest.mock import patch, MagicMock
+
+
+def test_summarize_event_with_narratives():
+    """summarize_event should call Ollama with event context and return summary."""
+    from photo_memory.events import summarize_event
+    event = {
+        "event_id": "evt_001",
+        "photos": [
+            {
+                "uuid": "p1",
+                "date_taken": "2024-09-28T13:00:00",
+                "ai_result": json.dumps({"narrative": "海边合影", "emotional_tone": "轻松"}),
+            },
+            {
+                "uuid": "p2",
+                "date_taken": "2024-09-28T13:10:00",
+                "ai_result": json.dumps({"narrative": "看日落", "emotional_tone": "平静"}),
+            },
+        ],
+        "start_time": "2024-09-28T13:00:00",
+        "end_time": "2024-09-28T13:10:00",
+        "location_city": "大连市",
+        "face_cluster_ids": ["fc_001"],
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "response": json.dumps({
+            "summary": "和朋友在大连海边散步并看日落",
+            "mood": "愉快轻松",
+        })
+    }
+
+    with patch("photo_memory.events.requests.post", return_value=mock_response) as mock_post:
+        result = summarize_event(event, host="http://localhost:11434",
+                                 model="gemma4:e4b", timeout=60)
+
+    assert result["summary"] == "和朋友在大连海边散步并看日落"
+    assert result["mood"] == "愉快轻松"
+    call_payload = mock_post.call_args[1]["json"]
+    assert "海边合影" in call_payload["prompt"]
+    assert "大连市" in call_payload["prompt"]
+
+
+def test_summarize_event_fallback_on_error():
+    """If LLM fails, return a fallback summary from available data."""
+    from photo_memory.events import summarize_event
+    event = {
+        "event_id": "evt_002",
+        "photos": [
+            {"uuid": "p1", "date_taken": "2024-09-28T13:00:00",
+             "ai_result": json.dumps({"narrative": "海边"})},
+        ],
+        "start_time": "2024-09-28T13:00:00",
+        "end_time": "2024-09-28T13:00:00",
+        "location_city": "大连市",
+        "face_cluster_ids": [],
+    }
+
+    with patch("photo_memory.events.requests.post", side_effect=Exception("network down")):
+        result = summarize_event(event, host="http://x", model="m", timeout=10)
+
+    assert "summary" in result
+    assert result["summary"]
+    assert "mood" in result
