@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_DATA_DIR = os.path.expanduser("~/.photo-memory")
+DEFAULT_DATA_DIR = os.path.expanduser("~/.phototag")
 DEFAULT_CONFIG_PATH = os.path.join(DEFAULT_DATA_DIR, "config.yaml")
 
 DEFAULT_CONFIG = {

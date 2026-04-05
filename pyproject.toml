@@ -1,7 +1,7 @@
 [project]
-name = "photo-memory"
+name = "phototag"
 version = "0.1.0"
-description = "Local AI photo organizer and personal memory engine"
+description = "Local AI photo tagger for Apple Photos — tag, describe, and organize your library automatically using on-device vision models"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "Apache-2.0"
@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.scripts]
-photo-memory = "photo_memory.cli:main"
+phototag = "photo_memory.cli:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -46,11 +46,8 @@ def _set_keywords(uuid: str, keywords: list[str]):
     kw_list = ", ".join(f'"{kw}"' for kw in keywords)
     script = f'''
     tell application "Photos"
-        set thePhotos to (search for "{uuid}")
-        if (count of thePhotos) > 0 then
-            set thePhoto to item 1 of thePhotos
-            set keywords of thePhoto to {{{kw_list}}}
-        end if
+        set thePhoto to media item id "{uuid}"
+        set keywords of thePhoto to {{{kw_list}}}
     end tell
     '''
     _run_applescript(script)
@@ -61,11 +58,8 @@ def _set_description(uuid: str, description: str):
     desc_escaped = description.replace('"', '\\"')
     script = f'''
     tell application "Photos"
-        set thePhotos to (search for "{uuid}")
-        if (count of thePhotos) > 0 then
-            set thePhoto to item 1 of thePhotos
-            set the description of thePhoto to "{desc_escaped}"
-        end if
+        set thePhoto to media item id "{uuid}"
+        set the description of thePhoto to "{desc_escaped}"
     end tell
     '''
     _run_applescript(script)
@@ -81,10 +75,8 @@ def _add_to_album(uuid: str, album_name: str):
         end if
         set theAlbum to album "{album_name}"
         -- Find and add photo
-        set thePhotos to (search for "{uuid}")
-        if (count of thePhotos) > 0 then
-            add {{item 1 of thePhotos}} to theAlbum
-        end if
+        set thePhoto to media item id "{uuid}"
+        add {{thePhoto}} to theAlbum
     end tell
     '''
     _run_applescript(script)

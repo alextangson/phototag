@@ -1,5 +1,5 @@
-# PhotoMemory Configuration
-# Copy to ~/.photo-memory/config.yaml and customize
+# phototag Configuration
+# Copy to ~/.phototag/config.yaml and customize
 
 ollama:
   host: "http://localhost:11434"
