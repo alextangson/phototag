@@ -20,7 +20,11 @@ from photo_memory.story import (
     generate_person_story,
     generate_year_story,
     generate_relationship_story,
+    build_year_html,
+    build_person_html,
 )
+from photo_memory.search import search_photos as do_search, list_cleanup_candidates
+from photo_memory.merge import merge_clusters
 
 logger = logging.getLogger("photo_memory")
 
@@ -291,18 +295,43 @@ def events(ctx, gap_minutes):
 @main.command()
 @click.option("--name", "name_args", nargs=2, type=str, default=None,
               help="Assign a user name: --name <face_cluster_id> <name>")
+@click.option("--merge", "merge_args", nargs=3, type=str, default=None,
+              help="Merge two clusters under one name: --merge <fc_a> <fc_b> <name>")
+@click.option("--suggest-merges", is_flag=True, default=False,
+              help="Suggest cluster pairs likely to be the same person")
 @click.option("--min-photos", default=10, help="Minimum photo count to display")
 @click.pass_context
-def people(ctx, name_args, min_photos):
-    """Build and list the people graph. Use --name to assign a name."""
+def people(ctx, name_args, merge_args, suggest_merges, min_photos):
+    """Build and list the people graph."""
+    from photo_memory.merge import suggest_merges as compute_suggestions
+
     config = ctx.obj["config"]
     db_path = os.path.join(config["data_dir"], "progress.db")
     db = Database(db_path)
+
+    if merge_args:
+        fc_a, fc_b, name = merge_args
+        merge_clusters(db, fc_a, fc_b, name=name)
+        click.echo(f"已将 {fc_a} 与 {fc_b} 合并为「{name}」")
+        db.close()
+        return
 
     if name_args:
         fc_id, user_name = name_args
         db.set_person_user_name(fc_id, user_name)
         click.echo(f"Named {fc_id} as {user_name}")
+        db.close()
+        return
+
+    if suggest_merges:
+        all_people = db.get_all_people()
+        suggestions = compute_suggestions(all_people, min_photos=min_photos)
+        click.echo(f"找到 {len(suggestions)} 对可能的合并候选:\n")
+        for s in suggestions[:20]:
+            click.echo(f"  jaccard={s['confidence']}  {s['fc_a'][:12]}... ↔ {s['fc_b'][:12]}...")
+            click.echo(f"    共享联系人: {len(s['shared_contacts'])} 位")
+            click.echo(f"    合并命令: phototag people --merge {s['fc_a']} {s['fc_b']} \"名字\"")
+            click.echo("")
         db.close()
         return
 
@@ -361,20 +390,81 @@ def story(ctx, person_name, year, relationship_name, output_path):
     db = Database(db_path)
 
     if person_name:
-        markdown = generate_person_story(db, person_name, ollama_config=config["ollama"])
+        if output_path and output_path.endswith(".html"):
+            content = build_person_html(db, person_name, ollama_config=config["ollama"])
+        else:
+            content = generate_person_story(db, person_name, ollama_config=config["ollama"])
     elif year:
-        markdown = generate_year_story(db, year, ollama_config=config["ollama"])
+        if output_path and output_path.endswith(".html"):
+            content = build_year_html(db, year, ollama_config=config["ollama"])
+        else:
+            content = generate_year_story(db, year, ollama_config=config["ollama"])
     else:
-        markdown = generate_relationship_story(db, relationship_name, ollama_config=config["ollama"])
+        content = generate_relationship_story(db, relationship_name, ollama_config=config["ollama"])
 
     db.close()
 
     if output_path:
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write(markdown)
+            f.write(content)
         click.echo(f"Story written to {output_path}")
     else:
-        click.echo(markdown)
+        click.echo(content)
+
+
+@main.command()
+@click.option("--person", type=str, default=None)
+@click.option("--year", type=int, default=None)
+@click.option("--city", type=str, default=None)
+@click.option("--text", type=str, default=None)
+@click.option("--limit", type=int, default=50)
+@click.pass_context
+def search(ctx, person, year, city, text, limit):
+    """Search photos by person, year, city, or text keyword."""
+    config = ctx.obj["config"]
+    db_path = os.path.join(config["data_dir"], "progress.db")
+    db = Database(db_path)
+
+    results = do_search(db, person=person, year=year, city=city, text=text, limit=limit)
+    click.echo(f"找到 {len(results)} 张照片")
+    for r in results[:limit]:
+        date = (r.get("date_taken") or "")[:10]
+        loc = r.get("location_city") or "-"
+        desc = (r.get("description") or "")[:60]
+        click.echo(f"  [{date}] {loc:<10s} {r['uuid'][:8]}... {desc}")
+    db.close()
+
+
+@main.command()
+@click.option("--include-review", is_flag=True, default=False,
+              help="Also list photos marked as 'review' (needs manual decision)")
+@click.pass_context
+def cleanup(ctx, include_review):
+    """Report photos flagged for cleanup (cleanup_class=cleanup/review)."""
+    config = ctx.obj["config"]
+    db_path = os.path.join(config["data_dir"], "progress.db")
+    db = Database(db_path)
+
+    report = list_cleanup_candidates(db)
+    cleanup_info = report["cleanup"]
+    review_info = report["review"]
+
+    click.echo(f"可清理照片：{cleanup_info['count']} 张")
+    click.echo(f"待人工确认：{review_info['count']} 张")
+    click.echo("")
+
+    click.echo("=== cleanup （可直接删）===")
+    for p in cleanup_info["photos"][:30]:
+        desc = (p.get("description") or "")[:60]
+        click.echo(f"  {p['uuid'][:8]}... {desc}")
+
+    if include_review:
+        click.echo("\n=== review （请人工判断）===")
+        for p in review_info["photos"][:30]:
+            desc = (p.get("description") or "")[:60]
+            click.echo(f"  {p['uuid'][:8]}... {desc}")
+
+    db.close()
 
 
 @main.command()

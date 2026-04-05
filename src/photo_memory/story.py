@@ -274,3 +274,96 @@ def generate_relationship_story(db, person_name: str, ollama_config: dict) -> st
     groups = group_events_by_period(events, strategy=strategy)
 
     return _render_story_markdown(title, stats_line, groups, ollama_config)
+
+
+def build_year_html(db, year: int, ollama_config: dict) -> str:
+    """Generate a year story as self-contained HTML with inlined photos."""
+    from photo_memory.html_renderer import render_story_html
+
+    events = db.get_events_in_year(year)
+    if not events:
+        return render_story_html(
+            title=f"{year} 年度回忆",
+            stats_line="",
+            intro_narrative="这一年暂无事件记录。",
+            events_with_photos=[],
+        )
+
+    events_with_photos = []
+    for e in events:
+        links = db.get_event_photos(e["event_id"])
+        photo_rows = []
+        for link in links:
+            p = db.get_photo(link["photo_uuid"])
+            if p and p.get("file_path"):
+                photo_rows.append(p)
+        events_with_photos.append({**e, "photos": photo_rows})
+
+    photo_total = sum(e.get("photo_count") or 0 for e in events)
+    cities = {e.get("location_city") for e in events if e.get("location_city")}
+    stats_line = f"共 {photo_total} 张照片，{len(events)} 个事件，到过 {len(cities)} 个地方"
+
+    intro = generate_period_narrative(
+        events, period_label=f"{year} 年",
+        host=ollama_config["host"], model=ollama_config["model"],
+        timeout=ollama_config["timeout"],
+    )
+
+    return render_story_html(
+        title=f"{year} 年度回忆",
+        stats_line=stats_line,
+        intro_narrative=intro,
+        events_with_photos=events_with_photos,
+    )
+
+
+def build_person_html(db, person_name: str, ollama_config: dict) -> str:
+    """Generate a person story as self-contained HTML with inlined photos."""
+    from photo_memory.html_renderer import render_story_html
+
+    person = db.get_person_by_name(person_name)
+    if not person:
+        return render_story_html(
+            title=f"找不到「{person_name}」",
+            stats_line="",
+            intro_narrative="请先用 `phototag people --name <fc_id> <name>` 命名该人物。",
+            events_with_photos=[],
+        )
+
+    fc_ids = db.get_all_fc_ids_for_name(person_name)
+    all_events = []
+    seen = set()
+    for fc_id in fc_ids:
+        for e in db.get_events_for_person(fc_id):
+            if e["event_id"] not in seen:
+                all_events.append(e)
+                seen.add(e["event_id"])
+    all_events.sort(key=lambda e: e.get("start_time") or "")
+
+    events_with_photos = []
+    for e in all_events:
+        links = db.get_event_photos(e["event_id"])
+        photo_rows = []
+        for link in links:
+            p = db.get_photo(link["photo_uuid"])
+            if p and p.get("file_path"):
+                photo_rows.append(p)
+        events_with_photos.append({**e, "photos": photo_rows})
+
+    first = (person["first_seen"] or "")[:10]
+    last = (person["last_seen"] or "")[:10]
+    photo_count = person["photo_count"] or 0
+    stats_line = f"共 {photo_count} 张照片，{len(all_events)} 个事件，{first} ~ {last}"
+
+    intro = generate_period_narrative(
+        all_events, period_label=f"和{person_name}的回忆",
+        host=ollama_config["host"], model=ollama_config["model"],
+        timeout=ollama_config["timeout"],
+    )
+
+    return render_story_html(
+        title=f"和{person_name}的回忆",
+        stats_line=stats_line,
+        intro_narrative=intro,
+        events_with_photos=events_with_photos,
+    )
