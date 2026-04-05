@@ -7,7 +7,7 @@ import os
 from photo_memory.db import Database
 from photo_memory.dedup import compute_phash
 from photo_memory.load_monitor import LoadDecision, LoadMonitor
-from photo_memory.recognizer import recognize_photo, summarize_video_frames
+from photo_memory.recognizer import recognize_photo, summarize_video_frames, build_photo_context
 from photo_memory.tagger import apply_tags_to_photo
 from photo_memory.video_extractor import extract_frames, extract_audio, transcribe_audio
 
@@ -100,11 +100,13 @@ def process_one_photo(db: Database, photo_row: dict, ollama_config: dict,
         else:
             # Photo processing
             phash = compute_phash(exported_path)
+            photo_context = build_photo_context(photo_row)
             result = recognize_photo(
                 exported_path,
                 host=ollama_config["host"],
                 model=ollama_config["model"],
                 timeout=ollama_config["timeout"],
+                photo_context=photo_context,
             )
 
         try:
@@ -117,10 +119,10 @@ def process_one_photo(db: Database, photo_row: dict, ollama_config: dict,
             status="done",
             phash=phash,
             ai_result=json.dumps(result, ensure_ascii=False),
-            tags=json.dumps(result.get("tags", []), ensure_ascii=False),
-            description=result.get("description", ""),
-            importance=result.get("importance", "low"),
-            media_type=result.get("media_type", "photo"),
+            tags=json.dumps(result.get("search_tags", []), ensure_ascii=False),
+            description=result.get("narrative", ""),
+            importance=result.get("cleanup_class", "keep"),
+            media_type=result.get("scene_category", "photo"),
         )
         return True
 

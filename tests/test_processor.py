@@ -17,11 +17,10 @@ def test_process_one_photo_success(tmp_db_path, tmp_path):
     Image.new("RGB", (100, 100), "red").save(fake_img)
 
     ai_result = {
-        "description": "一只猫",
-        "tags": ["宠物/猫"],
-        "media_type": "photo",
-        "scene": "indoor",
-        "importance": "low",
+        "narrative": "一只猫",
+        "search_tags": ["宠物/猫"],
+        "scene_category": "photo",
+        "cleanup_class": "keep",
         "has_text": False,
         "text_summary": "",
     }
@@ -155,4 +154,59 @@ def test_process_one_video_success(tmp_db_path, tmp_path):
     row = db.get_photo("vid-1")
     assert row["status"] == "done"
     mock_summarize.assert_called_once()
+    db.close()
+
+
+def test_process_one_photo_passes_context(tmp_path, tmp_db_path):
+    """Verify process_one_photo builds photo_context and passes it to recognizer."""
+    from photo_memory.db import Database
+    from photo_memory.processor import process_one_photo
+    from unittest.mock import patch
+    import json
+
+    db = Database(tmp_db_path)
+    db.upsert_photo("uuid-ctx",
+        file_path=str(tmp_path / "test.jpg"),
+        date_taken="2024-09-28T13:33:00",
+        location_city="大连市",
+        apple_labels='["人"]',
+        face_cluster_ids='["fc_001"]',
+        named_faces='["唐嘉鑫"]',
+        is_selfie=False,
+        is_screenshot=False,
+        is_live_photo=False,
+    )
+
+    from PIL import Image
+    img = Image.new("RGB", (10, 10), "red")
+    img.save(tmp_path / "test.jpg")
+
+    ai_result = {
+        "narrative": "测试",
+        "event_hint": "其他",
+        "people": [],
+        "emotional_tone": "平静",
+        "significance": "测试",
+        "scene_category": "other",
+        "series_hint": "standalone",
+        "search_tags": ["测试"],
+        "has_text": False,
+        "text_summary": "",
+        "cleanup_class": "keep",
+        "duplicate_hint": "standalone",
+    }
+
+    with patch("photo_memory.processor.recognize_photo", return_value=ai_result) as mock_rec, \
+         patch("photo_memory.processor.apply_tags_to_photo"), \
+         patch("photo_memory.processor.compute_phash", return_value="aabb"):
+        photo_row = db.get_photo("uuid-ctx")
+        result = process_one_photo(db, photo_row, {"host": "h", "model": "m", "timeout": 60}, str(tmp_path))
+
+    assert result is True
+    # Verify photo_context was passed as keyword argument
+    call_kwargs = mock_rec.call_args[1]
+    assert "photo_context" in call_kwargs
+    ctx = call_kwargs["photo_context"]
+    assert ctx["location_city"] == "大连市"
+    assert ctx["named_faces"] == ["唐嘉鑫"]
     db.close()
