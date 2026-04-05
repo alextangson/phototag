@@ -11,18 +11,53 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_place_info(photo) -> dict:
-    """Extract city/state/country from photo.place, return dict of values."""
-    if not photo.place or not photo.place.address:
-        return {}
-    addr = photo.place.address
-    result = {}
-    if addr.city:
-        result["location_city"] = addr.city
-    if addr.state_province:
-        result["location_state"] = addr.state_province
-    if addr.country:
-        result["location_country"] = addr.country
-    return result
+    """Extract city/state/country from photo.place or GPS reverse geocoding."""
+    # Try Apple's place data first
+    if photo.place and photo.place.address:
+        addr = photo.place.address
+        result = {}
+        if addr.city:
+            result["location_city"] = addr.city
+        if addr.state_province:
+            result["location_state"] = addr.state_province
+        if addr.country:
+            result["location_country"] = addr.country
+        if result:
+            return result
+
+    # Fallback: reverse geocode from GPS coordinates
+    if photo.latitude and photo.longitude:
+        return _reverse_geocode(photo.latitude, photo.longitude)
+
+    return {}
+
+
+# Module-level cache for reverse_geocoder (loaded once on first use)
+_rg_module = None
+
+
+def _reverse_geocode(lat: float, lon: float) -> dict:
+    """Reverse geocode GPS coordinates using offline reverse_geocoder library."""
+    global _rg_module
+    try:
+        if _rg_module is None:
+            import reverse_geocoder as rg
+            _rg_module = rg
+        results = _rg_module.search([(lat, lon)], mode=2, verbose=False)
+        if results:
+            r = results[0]
+            result = {}
+            if r.get("name"):
+                result["location_city"] = r["name"]
+            if r.get("admin1"):
+                result["location_state"] = r["admin1"]
+            if r.get("cc"):
+                # Convert country code to country name
+                result["location_country"] = r["cc"]
+            return result
+    except Exception as e:
+        logger.warning(f"Reverse geocoding failed for ({lat}, {lon}): {e}")
+    return {}
 
 
 def _extract_face_info(photo) -> tuple[str, str]:

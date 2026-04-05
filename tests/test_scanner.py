@@ -114,6 +114,54 @@ def test_scan_collects_apple_metadata(tmp_db_path):
     db.close()
 
 
+def test_scan_reverse_geocodes_gps(tmp_db_path):
+    """Photos with GPS but no place should get reverse geocoded."""
+    db = Database(tmp_db_path)
+    from datetime import datetime
+
+    # Photo with GPS coordinates but no Apple place data
+    mock_photos = [
+        _make_mock_photo("uuid-gps", "/photos/gps.jpg", datetime(2024, 9, 28),
+                         lat=38.93, lon=121.68),  # Dalian coordinates
+    ]
+
+    with patch("photo_memory.scanner.osxphotos.PhotosDB") as mock_db, \
+         patch("photo_memory.scanner._reverse_geocode",
+               return_value={"location_city": "Dalian", "location_state": "Liaoning", "location_country": "CN"}) as mock_rg:
+        mock_db.return_value.photos.return_value = mock_photos
+        count = scan_photos_into_db(db)
+
+    assert count == 1
+    row = db.get_photo("uuid-gps")
+    assert row["location_city"] == "Dalian"
+    assert row["location_state"] == "Liaoning"
+    mock_rg.assert_called_once_with(38.93, 121.68)
+    db.close()
+
+
+def test_scan_prefers_apple_place_over_reverse_geocode(tmp_db_path):
+    """When Apple place data exists, don't reverse geocode."""
+    db = Database(tmp_db_path)
+    from datetime import datetime
+
+    place = _make_mock_place(city="大连市", state="辽宁省", country="中国")
+    mock_photos = [
+        _make_mock_photo("uuid-both", "/photos/both.jpg", datetime(2024, 9, 28),
+                         lat=38.93, lon=121.68, place=place),
+    ]
+
+    with patch("photo_memory.scanner.osxphotos.PhotosDB") as mock_db, \
+         patch("photo_memory.scanner._reverse_geocode") as mock_rg:
+        mock_db.return_value.photos.return_value = mock_photos
+        count = scan_photos_into_db(db)
+
+    assert count == 1
+    row = db.get_photo("uuid-both")
+    assert row["location_city"] == "大连市"
+    mock_rg.assert_not_called()
+    db.close()
+
+
 def test_scan_handles_missing_metadata(tmp_db_path):
     db = Database(tmp_db_path)
     from datetime import datetime
