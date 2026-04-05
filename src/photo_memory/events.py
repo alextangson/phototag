@@ -66,3 +66,50 @@ def slice_into_events(photos: list[dict], gap_minutes: int = 30) -> list[dict]:
         })
 
     return events
+
+
+def enrich_event_metadata(event: dict) -> dict:
+    """Enrich an event dict with aggregated metadata (faces, city, cover).
+
+    Args:
+        event: event dict from slice_into_events with 'photos', 'start_time', 'end_time'
+
+    Returns:
+        enriched event dict with additional keys: event_id, photo_count,
+        face_cluster_ids (list), location_city, cover_photo_uuid
+    """
+    from collections import Counter
+
+    photos = event["photos"]
+
+    # Union of all face cluster IDs
+    face_ids = set()
+    for p in photos:
+        raw = p.get("face_cluster_ids")
+        if raw:
+            try:
+                face_ids.update(json.loads(raw))
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    # Majority city (ignore None)
+    cities = [p.get("location_city") for p in photos if p.get("location_city")]
+    majority_city = Counter(cities).most_common(1)[0][0] if cities else None
+
+    # Cover photo: first photo (MVP; could be smarter later)
+    cover_uuid = photos[0]["uuid"]
+
+    # Event ID: evt_<start_compact>_<first-uuid-prefix>
+    start_dt = _parse_date(event["start_time"])
+    start_compact = start_dt.strftime("%Y%m%d%H%M%S") if start_dt else "unknown"
+    uuid_prefix = cover_uuid[:8]
+    event_id = f"evt_{start_compact}_{uuid_prefix}"
+
+    return {
+        **event,
+        "event_id": event_id,
+        "photo_count": len(photos),
+        "face_cluster_ids": sorted(face_ids),
+        "location_city": majority_city,
+        "cover_photo_uuid": cover_uuid,
+    }
