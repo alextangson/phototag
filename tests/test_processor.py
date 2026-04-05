@@ -157,6 +157,52 @@ def test_process_one_video_success(tmp_db_path, tmp_path):
     db.close()
 
 
+def test_export_photo_converts_heic(tmp_path):
+    """HEIC files should be converted to JPEG via sips."""
+    from photo_memory.processor import export_photo
+
+    heic_file = tmp_path / "test.heic"
+    heic_file.write_bytes(b"fake heic data")
+
+    with patch("photo_memory.processor.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        result = export_photo("uuid-heic", str(heic_file), str(tmp_path))
+
+    assert result.endswith(".jpg")
+    mock_run.assert_called_once()
+    call_args = mock_run.call_args[0][0]
+    assert call_args[0] == "sips"
+    assert "jpeg" in call_args
+
+
+def test_export_photo_heic_failure_returns_none(tmp_path):
+    """If sips fails, export_photo should return None."""
+    import subprocess as sp
+    from photo_memory.processor import export_photo
+
+    heic_file = tmp_path / "bad.heic"
+    heic_file.write_bytes(b"fake")
+
+    with patch("photo_memory.processor.subprocess.run", side_effect=sp.CalledProcessError(1, "sips")):
+        result = export_photo("uuid-bad", str(heic_file), str(tmp_path))
+
+    assert result is None
+
+
+def test_export_photo_copies_jpeg(tmp_path):
+    """Non-HEIC files should just be copied."""
+    from photo_memory.processor import export_photo
+    from PIL import Image
+
+    jpg_file = tmp_path / "src" / "test.jpg"
+    jpg_file.parent.mkdir()
+    Image.new("RGB", (10, 10), "red").save(jpg_file)
+
+    result = export_photo("uuid-jpg", str(jpg_file), str(tmp_path))
+    assert result.endswith(".jpg")
+    assert os.path.exists(result)
+
+
 def test_process_one_photo_passes_context(tmp_path, tmp_db_path):
     """Verify process_one_photo builds photo_context and passes it to recognizer."""
     from photo_memory.db import Database

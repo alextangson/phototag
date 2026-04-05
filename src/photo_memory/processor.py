@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import subprocess
 
 from photo_memory.db import Database
 from photo_memory.dedup import compute_phash
@@ -20,11 +21,15 @@ def _is_video(file_path: str) -> bool:
     return os.path.splitext(file_path)[1].lower() in VIDEO_EXTENSIONS
 
 
+HEIC_EXTENSIONS = {".heic", ".heif"}
+
+
 def export_photo(uuid: str, file_path: str, tmp_dir: str) -> str | None:
     """Export a photo to a temporary directory.
 
     For iCloud photos, osxphotos can trigger download. For now we just
     check if the file exists at file_path, and if so copy it to tmp_dir.
+    HEIC/HEIF files are converted to JPEG via macOS sips.
     If not accessible, return None.
     """
     if not file_path or not os.path.isfile(file_path):
@@ -32,10 +37,23 @@ def export_photo(uuid: str, file_path: str, tmp_dir: str) -> str | None:
         return None
 
     import shutil
-    ext = os.path.splitext(file_path)[1] or ".jpg"
-    dst = os.path.join(tmp_dir, f"{uuid}{ext}")
-    shutil.copy2(file_path, dst)
-    return dst
+    ext = os.path.splitext(file_path)[1].lower() or ".jpg"
+
+    if ext in HEIC_EXTENSIONS:
+        dst = os.path.join(tmp_dir, f"{uuid}.jpg")
+        try:
+            subprocess.run(
+                ["sips", "-s", "format", "jpeg", file_path, "--out", dst],
+                capture_output=True, timeout=30, check=True,
+            )
+            return dst
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            logger.warning(f"HEIC conversion failed for {uuid}: {e}")
+            return None
+    else:
+        dst = os.path.join(tmp_dir, f"{uuid}{ext}")
+        shutil.copy2(file_path, dst)
+        return dst
 
 
 def process_one_photo(db: Database, photo_row: dict, ollama_config: dict,
