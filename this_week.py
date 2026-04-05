@@ -40,7 +40,9 @@ def scan_this_week_photos() -> dict[int, list]:
             compare_date = d.replace(year=current_year)
         except ValueError:
             continue
-        if target_start <= compare_date <= target_end:
+        # Strip timezone for comparison (osxphotos returns aware datetimes)
+        compare_naive = compare_date.replace(tzinfo=None)
+        if target_start <= compare_naive <= target_end:
             year = d.year
             if year not in by_year:
                 by_year[year] = []
