@@ -217,7 +217,7 @@ def test_process_one_photo_passes_context(tmp_path, tmp_db_path):
         location_city="大连市",
         apple_labels='["人"]',
         face_cluster_ids='["fc_001"]',
-        named_faces='["唐嘉鑫"]',
+        named_faces='{"fc_001": "唐嘉鑫"}',
         is_selfie=False,
         is_screenshot=False,
         is_live_photo=False,

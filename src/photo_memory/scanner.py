@@ -61,14 +61,23 @@ def _reverse_geocode(lat: float, lon: float) -> dict:
 
 
 def _extract_face_info(photo) -> tuple[str, str]:
-    """Extract face_cluster_ids and named_faces as JSON strings."""
+    """Extract face info as JSON strings.
+
+    Returns:
+        (face_cluster_ids, named_faces) where
+        - face_cluster_ids: JSON array of all PersonInfo.uuid in the photo
+        - named_faces: JSON object {fc_id: name} only for persons with a name
+    """
     cluster_ids = []
-    named = []
+    name_map = {}
     for pi in (photo.person_info or []):
         cluster_ids.append(pi.uuid)
         if pi.name and pi.name != "_UNKNOWN_":
-            named.append(pi.name)
-    return json.dumps(cluster_ids, ensure_ascii=False), json.dumps(named, ensure_ascii=False)
+            name_map[pi.uuid] = pi.name
+    return (
+        json.dumps(cluster_ids, ensure_ascii=False),
+        json.dumps(name_map, ensure_ascii=False),
+    )
 
 
 def scan_photos_into_db(db: Database, photos_db_path: str | None = None) -> int:

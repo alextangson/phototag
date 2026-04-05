@@ -9,7 +9,7 @@ def _photo(uuid, date, face_ids, city=None):
         "date_taken": date,
         "face_cluster_ids": json.dumps(face_ids),
         "location_city": city,
-        "named_faces": json.dumps([]),
+        "named_faces": json.dumps({}),
     }
 
 
@@ -36,18 +36,36 @@ def test_compute_person_stats_counts_photos_and_coappearance():
 
 
 def test_compute_person_stats_uses_apple_name():
-    """When named_faces contains a name, associate it with the face cluster."""
+    """When named_faces maps a fc_id to a name, associate them."""
     photos = [
         {
             "uuid": "p1", "date_taken": "2024-01-01T12:00:00",
             "face_cluster_ids": json.dumps(["fc_001"]),
-            "named_faces": json.dumps(["唐嘉鑫"]),
+            "named_faces": json.dumps({"fc_001": "唐嘉鑫"}),
             "location_city": None,
         },
     ]
     stats = compute_person_stats(photos)
     fc1 = next(s for s in stats if s["face_cluster_id"] == "fc_001")
     assert fc1["apple_name"] == "唐嘉鑫"
+
+
+def test_compute_person_stats_named_faces_only_maps_own_cluster():
+    """A photo with named {fc_001: '唐嘉鑫'} and fc_002 unnamed must NOT
+    propagate the name to fc_002."""
+    photos = [
+        {
+            "uuid": "p1", "date_taken": "2024-01-01T12:00:00",
+            "face_cluster_ids": json.dumps(["fc_001", "fc_002"]),
+            "named_faces": json.dumps({"fc_001": "唐嘉鑫"}),
+            "location_city": None,
+        },
+    ]
+    stats = compute_person_stats(photos)
+    fc1 = next(s for s in stats if s["face_cluster_id"] == "fc_001")
+    fc2 = next(s for s in stats if s["face_cluster_id"] == "fc_002")
+    assert fc1["apple_name"] == "唐嘉鑫"
+    assert fc2["apple_name"] is None
 
 
 def test_compute_person_stats_top_locations():
@@ -97,11 +115,11 @@ def test_build_people_writes_to_db(tmp_path):
     db = Database(str(tmp_path / "test.db"))
     db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='["唐嘉鑫"]',
+                    named_faces='{"fc_001": "唐嘉鑫"}',
                     location_city="大连")
     db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
                     face_cluster_ids='["fc_001", "fc_002"]',
-                    named_faces='["唐嘉鑫"]',
+                    named_faces='{"fc_001": "唐嘉鑫"}',
                     location_city="深圳")
     for uuid in ["p1", "p2"]:
         db.update_photo_status(uuid, "done")
@@ -127,7 +145,7 @@ def test_build_people_preserves_user_name(tmp_path):
     db = Database(str(tmp_path / "test.db"))
     db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='[]')
+                    named_faces='{}')
     db.update_photo_status("p1", "done")
 
     build_people(db)
@@ -135,7 +153,7 @@ def test_build_people_preserves_user_name(tmp_path):
 
     db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='[]')
+                    named_faces='{}')
     db.update_photo_status("p2", "done")
     build_people(db)
 

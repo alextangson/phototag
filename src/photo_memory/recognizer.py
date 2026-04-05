@@ -116,13 +116,24 @@ def build_photo_context(photo_row: dict) -> dict:
                 return []
         return val
 
+    # named_faces is now stored as {fc_id: name} dict; extract name list for LLM context.
+    # Backward-compat: legacy format was a flat array of names.
+    raw_named = photo_row.get("named_faces")
+    parsed_named = _parse_json_field(raw_named)
+    if isinstance(parsed_named, dict):
+        named_list = list(parsed_named.values())
+    elif isinstance(parsed_named, list):
+        named_list = parsed_named
+    else:
+        named_list = []
+
     return {
         "date": photo_row.get("date_taken", ""),
         "location_city": photo_row.get("location_city"),
         "location_state": photo_row.get("location_state"),
         "location_country": photo_row.get("location_country"),
         "apple_labels": _parse_json_field(photo_row.get("apple_labels")),
-        "named_faces": _parse_json_field(photo_row.get("named_faces")),
+        "named_faces": named_list,
         "face_cluster_ids": _parse_json_field(photo_row.get("face_cluster_ids")),
         "is_selfie": bool(photo_row.get("is_selfie")),
         "is_screenshot": bool(photo_row.get("is_screenshot")),

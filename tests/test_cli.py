@@ -112,10 +112,10 @@ def test_people_command_builds_and_lists(tmp_path, sample_config):
     db = Database(db_path)
     db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='["唐嘉鑫"]')
+                    named_faces='{"fc_001": "唐嘉鑫"}')
     db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='["唐嘉鑫"]')
+                    named_faces='{"fc_001": "唐嘉鑫"}')
     for uuid in ["p1", "p2"]:
         db.update_photo_status(uuid, "done")
     db.close()
@@ -141,7 +141,7 @@ def test_people_name_command_sets_user_name(tmp_path, sample_config):
 
     db = Database(db_path)
     db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
-                    face_cluster_ids='["fc_001"]', named_faces='[]')
+                    face_cluster_ids='["fc_001"]', named_faces='{}')
     db.update_photo_status("p1", "done")
     db.close()
 

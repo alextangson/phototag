@@ -103,7 +103,7 @@ def test_scan_collects_apple_metadata(tmp_db_path):
     row = db.get_photo("uuid-meta")
     assert json.loads(row["apple_labels"]) == ["人", "牛仔裤", "海边"]
     assert json.loads(row["face_cluster_ids"]) == ["person-uuid-001", "person-uuid-002"]
-    assert json.loads(row["named_faces"]) == ["唐嘉鑫"]
+    assert json.loads(row["named_faces"]) == {"person-uuid-001": "唐嘉鑫"}
     assert row["is_selfie"] == 0
     assert row["is_screenshot"] == 0
     assert row["is_live_photo"] == 1
@@ -177,7 +177,7 @@ def test_scan_handles_missing_metadata(tmp_db_path):
     row = db.get_photo("uuid-bare")
     assert row["apple_labels"] == "[]"
     assert row["face_cluster_ids"] == "[]"
-    assert row["named_faces"] == "[]"
+    assert row["named_faces"] == "{}"
     assert row["is_selfie"] == 0
     assert row["location_city"] is None
     db.close()

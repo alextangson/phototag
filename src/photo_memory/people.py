@@ -30,6 +30,9 @@ def compute_person_stats(photos: list[dict]) -> list[dict]:
     # Index: face_cluster_id -> list of appearance records
     person_index = defaultdict(list)
 
+    # Global map: fc_id -> name (aggregated across all photos)
+    fc_name_map: dict[str, str] = {}
+
     for photo in photos:
         raw_faces = photo.get("face_cluster_ids")
         if not raw_faces:
@@ -41,10 +44,17 @@ def compute_person_stats(photos: list[dict]) -> list[dict]:
         if not face_ids:
             continue
 
+        # named_faces is now a JSON object {fc_id: name} (Apple metadata per face)
+        # Backward-compat: also accept legacy JSON array format
+        named_raw = photo.get("named_faces") or "{}"
         try:
-            named = json.loads(photo.get("named_faces") or "[]")
+            named_data = json.loads(named_raw)
         except (json.JSONDecodeError, TypeError):
-            named = []
+            named_data = {}
+        if isinstance(named_data, dict):
+            for fc_id, name in named_data.items():
+                if name and fc_id not in fc_name_map:
+                    fc_name_map[fc_id] = name
 
         for fc_id in face_ids:
             person_index[fc_id].append({
@@ -52,7 +62,6 @@ def compute_person_stats(photos: list[dict]) -> list[dict]:
                 "date": photo.get("date_taken"),
                 "city": photo.get("location_city"),
                 "other_face_ids": [f for f in face_ids if f != fc_id],
-                "named": named,
             })
 
     stats = []
@@ -68,12 +77,8 @@ def compute_person_stats(photos: list[dict]) -> list[dict]:
         city_counter = Counter(a["city"] for a in appearances if a["city"])
         top_locations = [c for c, _ in city_counter.most_common(5)]
 
-        # Simple heuristic: take first non-empty named entry from appearances
-        apple_name = None
-        for a in appearances:
-            if a["named"]:
-                apple_name = a["named"][0]
-                break
+        # apple_name comes from the fc_id → name map (built from named_faces dicts)
+        apple_name = fc_name_map.get(fc_id)
 
         trend = infer_appearance_trend(dates)
 

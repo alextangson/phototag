@@ -166,7 +166,7 @@ def test_build_photo_context():
         "location_state": "辽宁省",
         "location_country": "中国",
         "apple_labels": '["人", "牛仔裤"]',
-        "named_faces": '["唐嘉鑫"]',
+        "named_faces": '{"fc_001": "唐嘉鑫"}',
         "face_cluster_ids": '["fc_001", "fc_002"]',
         "is_selfie": 0,
         "is_screenshot": 0,
