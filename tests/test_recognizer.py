@@ -166,7 +166,7 @@ def test_build_photo_context():
         "location_state": "辽宁省",
         "location_country": "中国",
         "apple_labels": '["人", "牛仔裤"]',
-        "named_faces": '{"fc_001": "唐嘉鑫"}',
+        "named_faces": '{"fc_001": "张三"}',
         "face_cluster_ids": '["fc_001", "fc_002"]',
         "is_selfie": 0,
         "is_screenshot": 0,
@@ -175,7 +175,7 @@ def test_build_photo_context():
     }
     ctx = build_photo_context(photo_row)
     assert ctx["location_city"] == "大连市"
-    assert ctx["named_faces"] == ["唐嘉鑫"]
+    assert ctx["named_faces"] == ["张三"]
     assert ctx["apple_labels"] == ["人", "牛仔裤"]
     assert ctx["is_selfie"] is False
     assert ctx["is_live_photo"] is True

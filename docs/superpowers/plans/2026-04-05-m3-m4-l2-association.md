@@ -65,7 +65,7 @@ def test_upsert_person(tmp_db_path):
     db = Database(tmp_db_path)
     db.upsert_person(
         face_cluster_id="fc_001",
-        apple_name="唐嘉鑫",
+        apple_name="张三",
         user_name=None,
         photo_count=671,
         event_count=120,
@@ -76,7 +76,7 @@ def test_upsert_person(tmp_db_path):
         appearance_trend="stable",
     )
     row = db.execute("SELECT * FROM people WHERE face_cluster_id = ?", ("fc_001",)).fetchone()
-    assert row["apple_name"] == "唐嘉鑫"
+    assert row["apple_name"] == "张三"
     assert row["photo_count"] == 671
     assert row["appearance_trend"] == "stable"
     db.close()
@@ -998,13 +998,13 @@ def test_compute_person_stats_uses_apple_name():
         {
             "uuid": "p1", "date_taken": "2024-01-01T12:00:00",
             "face_cluster_ids": json.dumps(["fc_001"]),
-            "named_faces": json.dumps(["唐嘉鑫"]),
+            "named_faces": json.dumps(["张三"]),
             "location_city": None,
         },
     ]
     stats = compute_person_stats(photos)
     fc1 = next(s for s in stats if s["face_cluster_id"] == "fc_001")
-    assert fc1["apple_name"] == "唐嘉鑫"
+    assert fc1["apple_name"] == "张三"
 
 
 def test_compute_person_stats_top_locations():
@@ -1218,11 +1218,11 @@ def test_build_people_writes_to_db(tmp_path):
     db = Database(str(tmp_path / "test.db"))
     db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='["唐嘉鑫"]',
+                    named_faces='["张三"]',
                     location_city="大连")
     db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
                     face_cluster_ids='["fc_001", "fc_002"]',
-                    named_faces='["唐嘉鑫"]',
+                    named_faces='["张三"]',
                     location_city="深圳")
     for uuid in ["p1", "p2"]:
         db.update_photo_status(uuid, "done")
@@ -1234,7 +1234,7 @@ def test_build_people_writes_to_db(tmp_path):
     assert len(people) == 2
     fc1 = next(p for p in people if p["face_cluster_id"] == "fc_001")
     assert fc1["photo_count"] == 2
-    assert fc1["apple_name"] == "唐嘉鑫"
+    assert fc1["apple_name"] == "张三"
     # co_appearances stored as JSON
     co = json.loads(fc1["co_appearances"])
     assert co["fc_002"] == 1
@@ -1254,7 +1254,7 @@ def test_build_people_preserves_user_name(tmp_path):
 
     # First build
     build_people(db)
-    db.set_person_user_name("fc_001", "阿菁")
+    db.set_person_user_name("fc_001", "李四")
 
     # Add another photo and rebuild
     db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
@@ -1264,7 +1264,7 @@ def test_build_people_preserves_user_name(tmp_path):
     build_people(db)
 
     row = db.execute("SELECT user_name FROM people WHERE face_cluster_id = ?", ("fc_001",)).fetchone()
-    assert row["user_name"] == "阿菁"
+    assert row["user_name"] == "李四"
     db.close()
 ```
 
@@ -1379,10 +1379,10 @@ def test_people_command_builds_and_lists(tmp_path, sample_config):
     db = Database(db_path)
     db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='["唐嘉鑫"]')
+                    named_faces='["张三"]')
     db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='["唐嘉鑫"]')
+                    named_faces='["张三"]')
     for uuid in ["p1", "p2"]:
         db.update_photo_status(uuid, "done")
     db.close()
@@ -1392,7 +1392,7 @@ def test_people_command_builds_and_lists(tmp_path, sample_config):
         result = runner.invoke(main, ["--config", config_path, "people"])
 
     assert result.exit_code == 0
-    assert "fc_001" in result.output or "唐嘉鑫" in result.output
+    assert "fc_001" in result.output or "张三" in result.output
     assert "2" in result.output  # photo count
 
 
@@ -1417,12 +1417,12 @@ def test_people_name_command_sets_user_name(tmp_path, sample_config):
         # First build people
         runner.invoke(main, ["--config", config_path, "people"])
         # Then name
-        result = runner.invoke(main, ["--config", config_path, "people", "--name", "fc_001", "阿菁"])
+        result = runner.invoke(main, ["--config", config_path, "people", "--name", "fc_001", "李四"])
 
     assert result.exit_code == 0
     db = Database(db_path)
     row = db.execute("SELECT user_name FROM people WHERE face_cluster_id = ?", ("fc_001",)).fetchone()
-    assert row["user_name"] == "阿菁"
+    assert row["user_name"] == "李四"
     db.close()
 ```
 
@@ -1525,7 +1525,7 @@ Expected: 打印出事件列表，每个事件包含日期、地点、照片数�
 .venv/bin/phototag people --min-photos 20
 ```
 
-Expected: 列出高频人物，至少包含 "唐嘉鑫"（671 张），显示未命名人物提示
+Expected: 列出高频人物，至少包含 "张三"（671 张），显示未命名人物提示
 
 - [ ] **Step 3: 命名测试**
 

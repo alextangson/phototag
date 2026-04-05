@@ -78,7 +78,7 @@ def test_scan_collects_apple_metadata(tmp_db_path):
     from datetime import datetime
     import json
 
-    person1 = _make_mock_person("唐嘉鑫", "person-uuid-001", facecount=663)
+    person1 = _make_mock_person("张三", "person-uuid-001", facecount=663)
     person2 = _make_mock_person("_UNKNOWN_", "person-uuid-002", facecount=0)
     place = _make_mock_place(city="大连市", state="辽宁省", country="中国")
 
@@ -103,7 +103,7 @@ def test_scan_collects_apple_metadata(tmp_db_path):
     row = db.get_photo("uuid-meta")
     assert json.loads(row["apple_labels"]) == ["人", "牛仔裤", "海边"]
     assert json.loads(row["face_cluster_ids"]) == ["person-uuid-001", "person-uuid-002"]
-    assert json.loads(row["named_faces"]) == {"person-uuid-001": "唐嘉鑫"}
+    assert json.loads(row["named_faces"]) == {"person-uuid-001": "张三"}
     assert row["is_selfie"] == 0
     assert row["is_screenshot"] == 0
     assert row["is_live_photo"] == 1

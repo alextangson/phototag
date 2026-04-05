@@ -112,10 +112,10 @@ def test_people_command_builds_and_lists(tmp_path, sample_config):
     db = Database(db_path)
     db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='{"fc_001": "唐嘉鑫"}')
+                    named_faces='{"fc_001": "张三"}')
     db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
                     face_cluster_ids='["fc_001"]',
-                    named_faces='{"fc_001": "唐嘉鑫"}')
+                    named_faces='{"fc_001": "张三"}')
     for uuid in ["p1", "p2"]:
         db.update_photo_status(uuid, "done")
     db.close()
@@ -125,7 +125,7 @@ def test_people_command_builds_and_lists(tmp_path, sample_config):
         result = runner.invoke(main, ["--config", config_path, "people", "--min-photos", "1"])
 
     assert result.exit_code == 0
-    assert "fc_001" in result.output or "唐嘉鑫" in result.output
+    assert "fc_001" in result.output or "张三" in result.output
     assert "2" in result.output
 
 
@@ -148,10 +148,10 @@ def test_people_name_command_sets_user_name(tmp_path, sample_config):
     runner = CliRunner()
     with patch("photo_memory.cli.load_config", return_value=config):
         runner.invoke(main, ["--config", config_path, "people", "--min-photos", "1"])
-        result = runner.invoke(main, ["--config", config_path, "people", "--name", "fc_001", "阿菁"])
+        result = runner.invoke(main, ["--config", config_path, "people", "--name", "fc_001", "李四"])
 
     assert result.exit_code == 0
     db = Database(db_path)
     row = db.execute("SELECT user_name FROM people WHERE face_cluster_id = ?", ("fc_001",)).fetchone()
-    assert row["user_name"] == "阿菁"
+    assert row["user_name"] == "李四"
     db.close()

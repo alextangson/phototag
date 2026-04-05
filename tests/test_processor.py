@@ -217,7 +217,7 @@ def test_process_one_photo_passes_context(tmp_path, tmp_db_path):
         location_city="大连市",
         apple_labels='["人"]',
         face_cluster_ids='["fc_001"]',
-        named_faces='{"fc_001": "唐嘉鑫"}',
+        named_faces='{"fc_001": "张三"}',
         is_selfie=False,
         is_screenshot=False,
         is_live_photo=False,
@@ -254,5 +254,5 @@ def test_process_one_photo_passes_context(tmp_path, tmp_db_path):
     assert "photo_context" in call_kwargs
     ctx = call_kwargs["photo_context"]
     assert ctx["location_city"] == "大连市"
-    assert ctx["named_faces"] == ["唐嘉鑫"]
+    assert ctx["named_faces"] == ["张三"]
     db.close()

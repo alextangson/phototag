@@ -105,7 +105,7 @@ def test_new_photo_columns_exist(tmp_db_path):
         file_path="/test.jpg",
         apple_labels='["人","猫"]',
         face_cluster_ids='["fc_001"]',
-        named_faces='["唐嘉鑫"]',
+        named_faces='["张三"]',
         source_app="相机",
         is_selfie=False,
         is_screenshot=False,
@@ -117,7 +117,7 @@ def test_new_photo_columns_exist(tmp_db_path):
     row = db.get_photo("uuid-test")
     assert row["apple_labels"] == '["人","猫"]'
     assert row["face_cluster_ids"] == '["fc_001"]'
-    assert row["named_faces"] == '["唐嘉鑫"]'
+    assert row["named_faces"] == '["张三"]'
     assert row["is_selfie"] == 0
     assert row["is_screenshot"] == 0
     assert row["is_live_photo"] == 1
@@ -220,7 +220,7 @@ def test_upsert_person(tmp_db_path):
     db = Database(tmp_db_path)
     db.upsert_person(
         face_cluster_id="fc_001",
-        apple_name="唐嘉鑫",
+        apple_name="张三",
         user_name=None,
         photo_count=671,
         event_count=120,
@@ -231,7 +231,7 @@ def test_upsert_person(tmp_db_path):
         appearance_trend="stable",
     )
     row = db.execute("SELECT * FROM people WHERE face_cluster_id = ?", ("fc_001",)).fetchone()
-    assert row["apple_name"] == "唐嘉鑫"
+    assert row["apple_name"] == "张三"
     assert row["photo_count"] == 671
     assert row["appearance_trend"] == "stable"
     db.close()
