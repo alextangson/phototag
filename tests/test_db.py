@@ -250,3 +250,94 @@ def test_get_done_photos_for_aggregation(tmp_db_path):
     assert len(rows) == 3
     assert [r["uuid"] for r in rows] == ["p-3", "p-1", "p-2"]
     db.close()
+
+
+def test_get_person_by_name_finds_user_name(tmp_db_path):
+    """get_person_by_name should find person by user_name or apple_name."""
+    db = Database(tmp_db_path)
+    db.upsert_person(face_cluster_id="fc_001", apple_name="张三", user_name=None,
+                     photo_count=100, event_count=10, first_seen=None, last_seen=None,
+                     co_appearances="{}", top_locations="[]", appearance_trend="stable")
+    db.upsert_person(face_cluster_id="fc_002", apple_name=None, user_name="李四",
+                     photo_count=50, event_count=5, first_seen=None, last_seen=None,
+                     co_appearances="{}", top_locations="[]", appearance_trend="stable")
+
+    # Match by apple_name
+    p = db.get_person_by_name("张三")
+    assert p is not None
+    assert p["face_cluster_id"] == "fc_001"
+
+    # Match by user_name
+    p = db.get_person_by_name("李四")
+    assert p is not None
+    assert p["face_cluster_id"] == "fc_002"
+
+    # user_name takes priority when both match
+    db.upsert_person(face_cluster_id="fc_003", apple_name="李四", user_name=None,
+                     photo_count=10, event_count=1, first_seen=None, last_seen=None,
+                     co_appearances="{}", top_locations="[]", appearance_trend="stable")
+    p = db.get_person_by_name("李四")
+    assert p["face_cluster_id"] == "fc_002"  # user_name still wins
+
+    # No match
+    assert db.get_person_by_name("王五") is None
+    db.close()
+
+
+def test_get_events_for_person_returns_events_containing_face(tmp_db_path):
+    """get_events_for_person returns events where face_cluster_ids JSON contains the fc_id."""
+    db = Database(tmp_db_path)
+    db.upsert_event(
+        event_id="evt_001", start_time="2024-01-01T12:00:00", end_time="2024-01-01T13:00:00",
+        location_city="北京", location_state=None, photo_count=3,
+        face_cluster_ids='["fc_001", "fc_002"]',
+        summary="事件1", mood="愉快", cover_photo_uuid="p1",
+    )
+    db.upsert_event(
+        event_id="evt_002", start_time="2024-02-01T12:00:00", end_time="2024-02-01T13:00:00",
+        location_city="上海", location_state=None, photo_count=2,
+        face_cluster_ids='["fc_002"]',
+        summary="事件2", mood="平静", cover_photo_uuid="p2",
+    )
+    db.upsert_event(
+        event_id="evt_003", start_time="2024-03-01T12:00:00", end_time="2024-03-01T13:00:00",
+        location_city="大连", location_state=None, photo_count=1,
+        face_cluster_ids='["fc_001"]',
+        summary="事件3", mood="愉快", cover_photo_uuid="p3",
+    )
+
+    events = db.get_events_for_person("fc_001")
+    assert len(events) == 2
+    event_ids = [e["event_id"] for e in events]
+    assert "evt_001" in event_ids
+    assert "evt_003" in event_ids
+    assert event_ids.index("evt_001") < event_ids.index("evt_003")
+
+    events_fc2 = db.get_events_for_person("fc_002")
+    assert len(events_fc2) == 2
+    db.close()
+
+
+def test_get_events_in_year_filters_by_start_time(tmp_db_path):
+    db = Database(tmp_db_path)
+    db.upsert_event(
+        event_id="evt_2023", start_time="2023-06-15T10:00:00", end_time="2023-06-15T11:00:00",
+        location_city="A", location_state=None, photo_count=1, face_cluster_ids='[]',
+        summary="s", mood="", cover_photo_uuid="p1",
+    )
+    db.upsert_event(
+        event_id="evt_2024_jan", start_time="2024-01-15T10:00:00", end_time="2024-01-15T11:00:00",
+        location_city="B", location_state=None, photo_count=1, face_cluster_ids='[]',
+        summary="s", mood="", cover_photo_uuid="p2",
+    )
+    db.upsert_event(
+        event_id="evt_2024_dec", start_time="2024-12-31T23:00:00", end_time="2024-12-31T23:30:00",
+        location_city="C", location_state=None, photo_count=1, face_cluster_ids='[]',
+        summary="s", mood="", cover_photo_uuid="p3",
+    )
+
+    events = db.get_events_in_year(2024)
+    assert len(events) == 2
+    assert {e["event_id"] for e in events} == {"evt_2024_jan", "evt_2024_dec"}
+    assert events[0]["event_id"] == "evt_2024_jan"
+    db.close()

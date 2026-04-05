@@ -314,5 +314,37 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_person_by_name(self, name: str) -> dict | None:
+        """Find a person by user_name first, then apple_name."""
+        row = self.conn.execute(
+            "SELECT * FROM people WHERE user_name = ? LIMIT 1", (name,)
+        ).fetchone()
+        if row:
+            return dict(row)
+        row = self.conn.execute(
+            "SELECT * FROM people WHERE apple_name = ? LIMIT 1", (name,)
+        ).fetchone()
+        return dict(row) if row else None
+
+    def get_events_for_person(self, face_cluster_id: str) -> list[dict]:
+        """Get all events whose face_cluster_ids JSON array contains fc_id, ordered ASC."""
+        pattern = f'%"{face_cluster_id}"%'
+        rows = self.conn.execute(
+            "SELECT * FROM events WHERE face_cluster_ids LIKE ? ORDER BY start_time ASC",
+            (pattern,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_events_in_year(self, year: int) -> list[dict]:
+        """Get all events whose start_time falls in the given year, ordered ASC."""
+        start = f"{year}-01-01"
+        end = f"{year + 1}-01-01"
+        rows = self.conn.execute(
+            "SELECT * FROM events WHERE start_time >= ? AND start_time < ? "
+            "ORDER BY start_time ASC",
+            (start, end),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def close(self):
         self.conn.close()
