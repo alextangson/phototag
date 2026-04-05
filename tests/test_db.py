@@ -417,3 +417,30 @@ def test_get_cleanup_candidates_returns_cleanup_class_photos(tmp_db_path):
     results = db.get_cleanup_candidates(classes=["review", "cleanup"])
     assert len(results) == 3
     db.close()
+
+
+def test_get_all_fc_ids_by_name(tmp_db_path):
+    """get_all_fc_ids_for_name returns all clusters sharing a name."""
+    db = Database(tmp_db_path)
+    db.upsert_person(face_cluster_id="fc_001", apple_name=None, user_name="张三",
+                     photo_count=100, event_count=10, first_seen=None, last_seen=None,
+                     co_appearances="{}", top_locations="[]", appearance_trend="stable")
+    db.upsert_person(face_cluster_id="fc_002", apple_name=None, user_name="张三",
+                     photo_count=50, event_count=5, first_seen=None, last_seen=None,
+                     co_appearances="{}", top_locations="[]", appearance_trend="stable")
+    db.upsert_person(face_cluster_id="fc_003", apple_name="张三", user_name=None,
+                     photo_count=30, event_count=3, first_seen=None, last_seen=None,
+                     co_appearances="{}", top_locations="[]", appearance_trend="stable")
+    db.upsert_person(face_cluster_id="fc_999", apple_name=None, user_name="李四",
+                     photo_count=5, event_count=1, first_seen=None, last_seen=None,
+                     co_appearances="{}", top_locations="[]", appearance_trend="stable")
+
+    fc_ids = db.get_all_fc_ids_for_name("张三")
+    assert set(fc_ids) == {"fc_001", "fc_002", "fc_003"}
+
+    fc_ids = db.get_all_fc_ids_for_name("李四")
+    assert fc_ids == ["fc_999"]
+
+    fc_ids = db.get_all_fc_ids_for_name("不存在")
+    assert fc_ids == []
+    db.close()

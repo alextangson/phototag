@@ -398,5 +398,15 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_all_fc_ids_for_name(self, name: str) -> list[str]:
+        """Return all face_cluster_ids whose user_name OR apple_name matches the given name."""
+        rows = self.conn.execute(
+            "SELECT face_cluster_id FROM people "
+            "WHERE user_name = ? OR apple_name = ? "
+            "ORDER BY photo_count DESC",
+            (name, name),
+        ).fetchall()
+        return [r["face_cluster_id"] for r in rows]
+
     def close(self):
         self.conn.close()
