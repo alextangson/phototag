@@ -82,3 +82,63 @@ def test_group_events_by_period_quarter():
     assert len(groups[0]["events"]) == 2
     assert groups[1]["label"] == "2024 Q2"
     assert groups[2]["label"] == "2024 Q4"
+
+
+from unittest.mock import patch, MagicMock
+from photo_memory.story import generate_period_narrative, _extract_json_object
+
+
+def test_extract_json_object_direct():
+    raw = '{"narrative": "hello"}'
+    assert _extract_json_object(raw) == {"narrative": "hello"}
+
+
+def test_extract_json_object_markdown_block():
+    raw = '这是结果：\n```json\n{"narrative": "hello"}\n```'
+    assert _extract_json_object(raw) == {"narrative": "hello"}
+
+
+def test_extract_json_object_prose_wrap():
+    raw = '好的 {"narrative": "hello"} 就这样'
+    assert _extract_json_object(raw) == {"narrative": "hello"}
+
+
+def test_extract_json_object_returns_none_on_junk():
+    assert _extract_json_object("totally not json") is None
+
+
+def test_generate_period_narrative_calls_llm():
+    events = [
+        _event("e1", "2024-01-10T12:00:00", summary="和朋友在海边散步", location="大连", mood="愉快"),
+        _event("e2", "2024-01-25T12:00:00", summary="公司年会聚餐", location="大连", mood="热闹"),
+    ]
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "response": '{"narrative": "一月在大连度过了放松的时光，和朋友散步看海，也参加了热闹的年会聚餐。"}'
+    }
+
+    with patch("photo_memory.story.requests.post", return_value=mock_response) as mock_post:
+        narrative = generate_period_narrative(
+            events, period_label="2024-01",
+            host="http://localhost:11434", model="gemma4:e4b", timeout=60,
+        )
+
+    assert "大连" in narrative
+    assert "年会" in narrative or "朋友" in narrative
+    call_payload = mock_post.call_args[1]["json"]
+    assert "和朋友在海边散步" in call_payload["prompt"]
+    assert "公司年会聚餐" in call_payload["prompt"]
+
+
+def test_generate_period_narrative_fallback_on_error():
+    events = [_event("e1", "2024-01-10T12:00:00", summary="和朋友散步")]
+
+    with patch("photo_memory.story.requests.post", side_effect=Exception("network down")):
+        narrative = generate_period_narrative(
+            events, period_label="2024-01",
+            host="http://x", model="m", timeout=10,
+        )
+
+    assert "和朋友散步" in narrative
