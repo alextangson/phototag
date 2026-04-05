@@ -36,6 +36,13 @@ def full_setup(tmp_path):
         p.date = datetime(2024, 1, i + 1)
         p.latitude = 30.0 + i
         p.longitude = 120.0 + i
+        p.labels = []
+        p.person_info = []
+        p.selfie = False
+        p.screenshot = False
+        p.live_photo = False
+        p.place = None
+        p.imported_by = (None, None)
         mock_photos.append(p)
 
     return db, mock_photos, img_dir, tmp_path
@@ -52,13 +59,18 @@ def test_full_pipeline(full_setup):
 
     # Step 2: Process
     ai_result = {
-        "description": "测试照片",
-        "tags": ["人物/合照"],
-        "media_type": "photo",
-        "scene": "indoor",
-        "importance": "medium",
+        "narrative": "测试照片",
+        "event_hint": "其他",
+        "people": [],
+        "emotional_tone": "平静",
+        "significance": "测试",
+        "scene_category": "other",
+        "series_hint": "standalone",
+        "search_tags": ["人物", "合照"],
         "has_text": False,
         "text_summary": "",
+        "cleanup_class": "keep",
+        "duplicate_hint": "standalone",
     }
 
     mock_monitor = MagicMock()
