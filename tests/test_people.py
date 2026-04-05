@@ -85,3 +85,60 @@ def test_infer_appearance_trend_stable():
     ]
     trend = infer_appearance_trend(dates, reference_date="2026-04-05")
     assert trend == "stable"
+
+
+from unittest.mock import patch
+
+
+def test_build_people_writes_to_db(tmp_path):
+    from photo_memory.db import Database
+    from photo_memory.people import build_people
+
+    db = Database(str(tmp_path / "test.db"))
+    db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
+                    face_cluster_ids='["fc_001"]',
+                    named_faces='["唐嘉鑫"]',
+                    location_city="大连")
+    db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
+                    face_cluster_ids='["fc_001", "fc_002"]',
+                    named_faces='["唐嘉鑫"]',
+                    location_city="深圳")
+    for uuid in ["p1", "p2"]:
+        db.update_photo_status(uuid, "done")
+
+    count = build_people(db)
+
+    assert count == 2  # fc_001 and fc_002
+    people = db.get_all_people()
+    assert len(people) == 2
+    fc1 = next(p for p in people if p["face_cluster_id"] == "fc_001")
+    assert fc1["photo_count"] == 2
+    assert fc1["apple_name"] == "唐嘉鑫"
+    co = json.loads(fc1["co_appearances"])
+    assert co["fc_002"] == 1
+    db.close()
+
+
+def test_build_people_preserves_user_name(tmp_path):
+    """Rebuilding people should not overwrite user_name set by user."""
+    from photo_memory.db import Database
+    from photo_memory.people import build_people
+
+    db = Database(str(tmp_path / "test.db"))
+    db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
+                    face_cluster_ids='["fc_001"]',
+                    named_faces='[]')
+    db.update_photo_status("p1", "done")
+
+    build_people(db)
+    db.set_person_user_name("fc_001", "阿菁")
+
+    db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
+                    face_cluster_ids='["fc_001"]',
+                    named_faces='[]')
+    db.update_photo_status("p2", "done")
+    build_people(db)
+
+    row = db.execute("SELECT user_name FROM people WHERE face_cluster_id = ?", ("fc_001",)).fetchone()
+    assert row["user_name"] == "阿菁"
+    db.close()

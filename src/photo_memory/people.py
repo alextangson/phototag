@@ -122,3 +122,65 @@ def infer_appearance_trend(dates: list[str], reference_date: str | None = None) 
     if earlier > recent * 2 and earlier >= 2:
         return "decreasing"
     return "stable"
+
+
+def build_people(db) -> int:
+    """Build people graph from done photos and persist to DB.
+
+    Preserves user_name set by the user when upserting.
+
+    Returns:
+        number of unique people processed
+    """
+    photos = db.get_done_photos_ordered()
+    if not photos:
+        return 0
+
+    stats = compute_person_stats(photos)
+
+    # Count events per person (requires events table populated; OK if empty)
+    event_count_by_person = _count_events_per_person(db)
+
+    for s in stats:
+        fc_id = s["face_cluster_id"]
+        # Preserve existing user_name
+        existing = db.execute(
+            "SELECT user_name FROM people WHERE face_cluster_id = ?", (fc_id,)
+        ).fetchone()
+        user_name = existing["user_name"] if existing else None
+
+        db.upsert_person(
+            face_cluster_id=fc_id,
+            apple_name=s["apple_name"],
+            user_name=user_name,
+            photo_count=s["photo_count"],
+            event_count=event_count_by_person.get(fc_id, 0),
+            first_seen=s["first_seen"],
+            last_seen=s["last_seen"],
+            co_appearances=json.dumps(s["co_appearances"], ensure_ascii=False),
+            top_locations=json.dumps(s["top_locations"], ensure_ascii=False),
+            appearance_trend=s["appearance_trend"],
+        )
+
+    return len(stats)
+
+
+def _count_events_per_person(db) -> dict[str, int]:
+    """Count how many events each face_cluster_id appears in."""
+    counts = defaultdict(int)
+    try:
+        rows = db.execute("SELECT face_cluster_ids FROM events").fetchall()
+    except Exception:
+        return dict(counts)
+
+    for row in rows:
+        raw = row["face_cluster_ids"]
+        if not raw:
+            continue
+        try:
+            face_ids = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for fc_id in face_ids:
+            counts[fc_id] += 1
+    return dict(counts)
