@@ -8,6 +8,14 @@ logger = logging.getLogger(__name__)
 SCREENSHOT_TAGS = {"截屏", "聊天记录"}
 
 
+def _sanitize_for_applescript(s: str) -> str:
+    """Sanitize a string for safe use in AppleScript double-quoted strings."""
+    s = s.replace("\\", "\\\\")
+    s = s.replace('"', '\\"')
+    s = s.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+    return s
+
+
 def get_album_name(tag: str) -> str:
     """Extract first-level category from hierarchical tag and prefix with AI-."""
     first_level = tag.split("/")[0]
@@ -43,7 +51,7 @@ def _run_applescript(script: str) -> bool:
 
 def _set_keywords(uuid: str, keywords: list[str]):
     """Set keywords on a photo using AppleScript."""
-    kw_list = ", ".join(f'"{kw}"' for kw in keywords)
+    kw_list = ", ".join(f'"{_sanitize_for_applescript(kw)}"' for kw in keywords)
     script = f'''
     tell application "Photos"
         set thePhoto to media item id "{uuid}"
@@ -55,7 +63,7 @@ def _set_keywords(uuid: str, keywords: list[str]):
 
 def _set_description(uuid: str, description: str):
     """Set description on a photo using AppleScript."""
-    desc_escaped = description.replace('"', '\\"')
+    desc_escaped = _sanitize_for_applescript(description)
     script = f'''
     tell application "Photos"
         set thePhoto to media item id "{uuid}"
@@ -67,13 +75,14 @@ def _set_description(uuid: str, description: str):
 
 def _add_to_album(uuid: str, album_name: str):
     """Add a photo to an album, creating the album if needed."""
+    safe_name = _sanitize_for_applescript(album_name)
     script = f'''
     tell application "Photos"
         -- Get or create album
-        if not (exists album "{album_name}") then
-            make new album named "{album_name}"
+        if not (exists album "{safe_name}") then
+            make new album named "{safe_name}"
         end if
-        set theAlbum to album "{album_name}"
+        set theAlbum to album "{safe_name}"
         -- Find and add photo
         set thePhoto to media item id "{uuid}"
         add {{thePhoto}} to theAlbum

@@ -55,3 +55,11 @@ def test_apply_tags_calls_expected_operations():
     album_names = {call.args[1] for call in mock_album.call_args_list}
     assert "AI-人物" in album_names
     assert "AI-美食" in album_names
+
+
+def test_sanitize_applescript_string():
+    from photo_memory.tagger import _sanitize_for_applescript
+    assert _sanitize_for_applescript("hello") == "hello"
+    assert _sanitize_for_applescript('say "hi"') == 'say \\"hi\\"'
+    assert _sanitize_for_applescript("a\\b") == "a\\\\b"
+    assert _sanitize_for_applescript("line1\nline2\ttab") == "line1 line2 tab"
