@@ -1,5 +1,6 @@
 """Scan Apple Photos library and populate the progress database."""
 
+import json
 import logging
 
 import osxphotos
@@ -7,6 +8,32 @@ import osxphotos
 from photo_memory.db import Database
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_place_info(photo) -> dict:
+    """Extract city/state/country from photo.place, return dict of values."""
+    if not photo.place or not photo.place.address:
+        return {}
+    addr = photo.place.address
+    result = {}
+    if addr.city:
+        result["location_city"] = addr.city
+    if addr.state_province:
+        result["location_state"] = addr.state_province
+    if addr.country:
+        result["location_country"] = addr.country
+    return result
+
+
+def _extract_face_info(photo) -> tuple[str, str]:
+    """Extract face_cluster_ids and named_faces as JSON strings."""
+    cluster_ids = []
+    named = []
+    for pi in (photo.person_info or []):
+        cluster_ids.append(pi.uuid)
+        if pi.name and pi.name != "_UNKNOWN_":
+            named.append(pi.name)
+    return json.dumps(cluster_ids, ensure_ascii=False), json.dumps(named, ensure_ascii=False)
 
 
 def scan_photos_into_db(db: Database, photos_db_path: str | None = None) -> int:
@@ -23,12 +50,28 @@ def scan_photos_into_db(db: Database, photos_db_path: str | None = None) -> int:
     for photo in photos:
         if db.get_photo(photo.uuid):
             continue
+
+        face_cluster_ids, named_faces = _extract_face_info(photo)
+        place_info = _extract_place_info(photo)
+
+        source_app = None
+        if photo.imported_by and photo.imported_by[1]:
+            source_app = photo.imported_by[1]
+
         db.upsert_photo(
             uuid=photo.uuid,
             file_path=photo.path,
             date_taken=photo.date.isoformat() if photo.date else None,
             gps_lat=photo.latitude,
             gps_lon=photo.longitude,
+            apple_labels=json.dumps(photo.labels or [], ensure_ascii=False),
+            face_cluster_ids=face_cluster_ids,
+            named_faces=named_faces,
+            source_app=source_app,
+            is_selfie=photo.selfie,
+            is_screenshot=photo.screenshot,
+            is_live_photo=photo.live_photo,
+            **place_info,
         )
         new_count += 1
 
