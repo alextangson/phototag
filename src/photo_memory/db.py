@@ -346,5 +346,57 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def search_photos(
+        self,
+        face_cluster_ids: list[str] | None = None,
+        year: int | None = None,
+        city: str | None = None,
+        text: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Search done photos by combined filters (AND semantics)."""
+        conditions = ["status = 'done'"]
+        params: list = []
+
+        if face_cluster_ids:
+            or_parts = []
+            for fc_id in face_cluster_ids:
+                or_parts.append("face_cluster_ids LIKE ?")
+                params.append(f'%"{fc_id}"%')
+            conditions.append("(" + " OR ".join(or_parts) + ")")
+
+        if year is not None:
+            conditions.append("date_taken >= ? AND date_taken < ?")
+            params.append(f"{year}-01-01")
+            params.append(f"{year + 1}-01-01")
+
+        if city:
+            conditions.append("location_city = ?")
+            params.append(city)
+
+        if text:
+            conditions.append("(description LIKE ? OR tags LIKE ?)")
+            params.append(f"%{text}%")
+            params.append(f"%{text}%")
+
+        sql = (
+            "SELECT * FROM photos WHERE "
+            + " AND ".join(conditions)
+            + " ORDER BY date_taken DESC LIMIT ?"
+        )
+        params.append(limit)
+        rows = self.conn.execute(sql, tuple(params)).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_cleanup_candidates(self, classes: list[str]) -> list[dict]:
+        """Get photos whose cleanup_class (stored in 'importance' column) matches."""
+        placeholders = ",".join(["?"] * len(classes))
+        rows = self.conn.execute(
+            f"SELECT * FROM photos WHERE status = 'done' AND importance IN ({placeholders}) "
+            "ORDER BY date_taken DESC",
+            tuple(classes),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def close(self):
         self.conn.close()

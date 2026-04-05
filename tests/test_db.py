@@ -341,3 +341,79 @@ def test_get_events_in_year_filters_by_start_time(tmp_db_path):
     assert {e["event_id"] for e in events} == {"evt_2024_jan", "evt_2024_dec"}
     assert events[0]["event_id"] == "evt_2024_jan"
     db.close()
+
+
+def test_search_photos_by_person_fc_id(tmp_db_path):
+    db = Database(tmp_db_path)
+    db.upsert_photo("p1", date_taken="2024-03-01T12:00:00",
+                    face_cluster_ids='["fc_001"]', status="done",
+                    description="和朋友散步", tags='["散步"]')
+    db.upsert_photo("p2", date_taken="2024-04-01T12:00:00",
+                    face_cluster_ids='["fc_002"]', status="done",
+                    description="自拍", tags='["自拍"]')
+    db.update_photo_status("p1", "done")
+    db.update_photo_status("p2", "done")
+
+    results = db.search_photos(face_cluster_ids=["fc_001"])
+    assert len(results) == 1
+    assert results[0]["uuid"] == "p1"
+    db.close()
+
+
+def test_search_photos_combined_filters(tmp_db_path):
+    db = Database(tmp_db_path)
+    db.upsert_photo("p1", date_taken="2024-03-15T12:00:00",
+                    face_cluster_ids='["fc_001"]', location_city="北京",
+                    description="颐和园", tags='["公园"]')
+    db.upsert_photo("p2", date_taken="2024-03-20T12:00:00",
+                    face_cluster_ids='["fc_001"]', location_city="上海",
+                    description="外滩夜景", tags='["夜景"]')
+    db.upsert_photo("p3", date_taken="2023-06-10T12:00:00",
+                    face_cluster_ids='["fc_001"]', location_city="北京",
+                    description="雍和宫", tags='["寺庙"]')
+    for u in ["p1", "p2", "p3"]:
+        db.update_photo_status(u, "done")
+
+    results = db.search_photos(
+        face_cluster_ids=["fc_001"],
+        year=2024,
+        city="北京",
+    )
+    assert len(results) == 1
+    assert results[0]["uuid"] == "p1"
+    db.close()
+
+
+def test_search_photos_by_text_matches_description_and_tags(tmp_db_path):
+    db = Database(tmp_db_path)
+    db.upsert_photo("p1", date_taken="2024-01-01T12:00:00",
+                    description="海边散步", tags='["海", "散步"]')
+    db.upsert_photo("p2", date_taken="2024-02-01T12:00:00",
+                    description="山间徒步", tags='["山", "徒步"]')
+    db.update_photo_status("p1", "done")
+    db.update_photo_status("p2", "done")
+
+    results = db.search_photos(text="海边")
+    assert len(results) == 1
+    assert results[0]["uuid"] == "p1"
+
+    results = db.search_photos(text="徒步")
+    assert len(results) == 1
+    assert results[0]["uuid"] == "p2"
+    db.close()
+
+
+def test_get_cleanup_candidates_returns_cleanup_class_photos(tmp_db_path):
+    db = Database(tmp_db_path)
+    db.upsert_photo("p1", importance="keep", status="done")
+    db.upsert_photo("p2", importance="review", status="done")
+    db.upsert_photo("p3", importance="cleanup", status="done")
+    db.upsert_photo("p4", importance="cleanup", status="done")
+
+    results = db.get_cleanup_candidates(classes=["cleanup"])
+    assert len(results) == 2
+    assert {r["uuid"] for r in results} == {"p3", "p4"}
+
+    results = db.get_cleanup_candidates(classes=["review", "cleanup"])
+    assert len(results) == 3
+    db.close()
