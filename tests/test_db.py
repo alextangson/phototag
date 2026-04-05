@@ -89,3 +89,88 @@ def test_get_all_phashes(tmp_db_path):
     assert len(phashes) == 2
     assert phashes[0]["uuid"] in ("uuid-1", "uuid-2")
     db.close()
+
+
+def test_schema_version_table_exists(tmp_db_path):
+    db = Database(tmp_db_path)
+    row = db.execute("SELECT version FROM schema_version").fetchone()
+    assert row is not None
+    assert row["version"] >= 2
+    db.close()
+
+
+def test_new_photo_columns_exist(tmp_db_path):
+    db = Database(tmp_db_path)
+    db.upsert_photo("uuid-test",
+        file_path="/test.jpg",
+        apple_labels='["人","猫"]',
+        face_cluster_ids='["fc_001"]',
+        named_faces='["唐嘉鑫"]',
+        source_app="相机",
+        is_selfie=False,
+        is_screenshot=False,
+        is_live_photo=True,
+        location_city="北京市",
+        location_state="北京市",
+        location_country="中国",
+    )
+    row = db.get_photo("uuid-test")
+    assert row["apple_labels"] == '["人","猫"]'
+    assert row["face_cluster_ids"] == '["fc_001"]'
+    assert row["named_faces"] == '["唐嘉鑫"]'
+    assert row["is_selfie"] == 0
+    assert row["is_screenshot"] == 0
+    assert row["is_live_photo"] == 1
+    assert row["location_city"] == "北京市"
+    assert row["location_country"] == "中国"
+    db.close()
+
+
+def test_migration_from_v1_adds_columns(tmp_db_path):
+    """Simulate a v1 database and verify migration adds new columns."""
+    import sqlite3
+    conn = sqlite3.connect(tmp_db_path)
+    conn.executescript("""
+        CREATE TABLE photos (
+            uuid TEXT PRIMARY KEY,
+            status TEXT DEFAULT 'pending',
+            file_path TEXT,
+            date_taken TIMESTAMP,
+            gps_lat REAL,
+            gps_lon REAL,
+            phash TEXT,
+            ai_result TEXT,
+            tags TEXT,
+            description TEXT,
+            importance TEXT,
+            media_type TEXT,
+            processed_at TIMESTAMP,
+            error_msg TEXT
+        );
+        CREATE TABLE duplicates (
+            group_id INTEGER,
+            photo_uuid TEXT,
+            similarity REAL
+        );
+        CREATE TABLE runs (
+            run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TIMESTAMP,
+            ended_at TIMESTAMP,
+            photos_processed INTEGER DEFAULT 0,
+            photos_skipped INTEGER DEFAULT 0,
+            photos_errored INTEGER DEFAULT 0,
+            stop_reason TEXT
+        );
+    """)
+    conn.execute("INSERT INTO photos (uuid, file_path) VALUES ('old-1', '/old.jpg')")
+    conn.commit()
+    conn.close()
+
+    db = Database(tmp_db_path)
+    row = db.get_photo("old-1")
+    assert row["file_path"] == "/old.jpg"
+    assert row["apple_labels"] is None
+    assert row["location_city"] is None
+    ver = db.execute("SELECT version FROM schema_version").fetchone()
+    assert ver["version"] >= 2
+    db.close()

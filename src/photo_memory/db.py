@@ -3,52 +3,96 @@
 import sqlite3
 from datetime import datetime, timezone
 
+CURRENT_SCHEMA_VERSION = 2
+
 
 class Database:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
-        self._init_tables()
+        self._migrate()
 
-    def _init_tables(self):
-        self.conn.executescript("""
-            CREATE TABLE IF NOT EXISTS photos (
-                uuid TEXT PRIMARY KEY,
-                status TEXT DEFAULT 'pending',
-                file_path TEXT,
-                date_taken TIMESTAMP,
-                gps_lat REAL,
-                gps_lon REAL,
-                phash TEXT,
-                ai_result TEXT,
-                tags TEXT,
-                description TEXT,
-                importance TEXT,
-                media_type TEXT,
-                processed_at TIMESTAMP,
-                error_msg TEXT
-            );
-            CREATE TABLE IF NOT EXISTS duplicates (
-                group_id INTEGER,
-                photo_uuid TEXT,
-                similarity REAL,
-                FOREIGN KEY (photo_uuid) REFERENCES photos(uuid)
-            );
-            CREATE TABLE IF NOT EXISTS runs (
-                run_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                started_at TIMESTAMP,
-                ended_at TIMESTAMP,
-                photos_processed INTEGER DEFAULT 0,
-                photos_skipped INTEGER DEFAULT 0,
-                photos_errored INTEGER DEFAULT 0,
-                stop_reason TEXT
-            );
-            CREATE INDEX IF NOT EXISTS idx_photos_status ON photos(status);
-            CREATE INDEX IF NOT EXISTS idx_photos_phash ON photos(phash);
-            CREATE INDEX IF NOT EXISTS idx_duplicates_group ON duplicates(group_id);
-        """)
-        self.conn.commit()
+    def _get_schema_version(self) -> int:
+        try:
+            row = self.conn.execute("SELECT version FROM schema_version").fetchone()
+            return row["version"] if row else 0
+        except sqlite3.OperationalError:
+            return 0
+
+    def _set_schema_version(self, version: int):
+        self.conn.execute("DELETE FROM schema_version")
+        self.conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
+
+    def _migrate(self):
+        version = self._get_schema_version()
+
+        if version < 1:
+            self.conn.executescript("""
+                CREATE TABLE IF NOT EXISTS photos (
+                    uuid TEXT PRIMARY KEY,
+                    status TEXT DEFAULT 'pending',
+                    file_path TEXT,
+                    date_taken TIMESTAMP,
+                    gps_lat REAL,
+                    gps_lon REAL,
+                    phash TEXT,
+                    ai_result TEXT,
+                    tags TEXT,
+                    description TEXT,
+                    importance TEXT,
+                    media_type TEXT,
+                    processed_at TIMESTAMP,
+                    error_msg TEXT
+                );
+                CREATE TABLE IF NOT EXISTS duplicates (
+                    group_id INTEGER,
+                    photo_uuid TEXT,
+                    similarity REAL,
+                    FOREIGN KEY (photo_uuid) REFERENCES photos(uuid)
+                );
+                CREATE TABLE IF NOT EXISTS runs (
+                    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    started_at TIMESTAMP,
+                    ended_at TIMESTAMP,
+                    photos_processed INTEGER DEFAULT 0,
+                    photos_skipped INTEGER DEFAULT 0,
+                    photos_errored INTEGER DEFAULT 0,
+                    stop_reason TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_photos_status ON photos(status);
+                CREATE INDEX IF NOT EXISTS idx_photos_phash ON photos(phash);
+                CREATE INDEX IF NOT EXISTS idx_duplicates_group ON duplicates(group_id);
+                CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
+            """)
+            self._set_schema_version(1)
+            self.conn.commit()
+            version = 1
+
+        if version < 2:
+            new_columns = [
+                ("apple_labels", "TEXT"),
+                ("face_cluster_ids", "TEXT"),
+                ("named_faces", "TEXT"),
+                ("source_app", "TEXT"),
+                ("is_selfie", "INTEGER"),
+                ("is_screenshot", "INTEGER"),
+                ("is_live_photo", "INTEGER"),
+                ("location_city", "TEXT"),
+                ("location_state", "TEXT"),
+                ("location_country", "TEXT"),
+            ]
+            for col_name, col_type in new_columns:
+                try:
+                    self.conn.execute(f"ALTER TABLE photos ADD COLUMN {col_name} {col_type}")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+            # Ensure schema_version table exists (for v1 DBs without it)
+            self.conn.execute(
+                "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)"
+            )
+            self._set_schema_version(2)
+            self.conn.commit()
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         return self.conn.execute(sql, params)
