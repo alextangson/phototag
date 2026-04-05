@@ -181,5 +181,17 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def reset_photos_for_reprocess(self) -> int:
+        """Reset all 'done' photos back to 'pending' for reprocessing.
+        Returns the number of photos reset.
+        """
+        cursor = self.conn.execute(
+            "UPDATE photos SET status = 'pending', ai_result = NULL, tags = NULL, "
+            "description = NULL, importance = NULL, processed_at = NULL "
+            "WHERE status = 'done'"
+        )
+        self.conn.commit()
+        return cursor.rowcount
+
     def close(self):
         self.conn.close()

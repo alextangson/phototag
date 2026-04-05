@@ -36,3 +36,36 @@ def test_cli_help():
     assert "scan" in result.output
     assert "run" in result.output
     assert "status" in result.output
+
+
+def test_reprocess_command_resets_done_photos(tmp_path, sample_config):
+    """reprocess should reset 'done' photos back to 'pending'."""
+    from unittest.mock import patch
+    from click.testing import CliRunner
+    from photo_memory.cli import main
+    from photo_memory.db import Database
+
+    config, config_path = sample_config
+    config["data_dir"] = str(tmp_path)
+
+    db_path = str(tmp_path / "progress.db")
+    db = Database(db_path)
+    db.upsert_photo("uuid-1")
+    db.upsert_photo("uuid-2")
+    db.upsert_photo("uuid-3")
+    db.update_photo_status("uuid-1", "done")
+    db.update_photo_status("uuid-2", "done")
+    db.close()
+
+    runner = CliRunner()
+    with patch("photo_memory.cli.load_config", return_value=config):
+        result = runner.invoke(main, ["--config", config_path, "reprocess"])
+
+    assert result.exit_code == 0
+    assert "2" in result.output  # 2 photos reset
+
+    db = Database(db_path)
+    assert db.get_photo("uuid-1")["status"] == "pending"
+    assert db.get_photo("uuid-2")["status"] == "pending"
+    assert db.get_photo("uuid-3")["status"] == "pending"  # was already pending
+    db.close()

@@ -250,6 +250,18 @@ def dedup(ctx):
 
 @main.command()
 @click.pass_context
+def reprocess(ctx):
+    """Reset all processed photos back to pending for reprocessing with new prompt."""
+    config = ctx.obj["config"]
+    db_path = os.path.join(config["data_dir"], "progress.db")
+    db = Database(db_path)
+    count = db.reset_photos_for_reprocess()
+    click.echo(f"Reset {count} photos to pending. Run 'phototag run' to reprocess.")
+    db.close()
+
+
+@main.command()
+@click.pass_context
 def status(ctx):
     """Show processing progress."""
     config = ctx.obj["config"]
