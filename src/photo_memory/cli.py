@@ -499,9 +499,15 @@ def install(ctx):
     """Install launchd agent for nightly processing."""
     config = ctx.obj["config"]
 
+    # Prefer PATH lookup, fall back to the venv that's currently executing us.
     script_path = shutil.which("phototag")
     if not script_path:
-        click.echo("Error: phototag not found in PATH. Run 'uv sync' first.")
+        import sys
+        candidate = os.path.join(os.path.dirname(sys.executable), "phototag")
+        if os.path.isfile(candidate):
+            script_path = candidate
+    if not script_path:
+        click.echo("Error: phototag executable not found. Run 'pip install -e .' in the venv.")
         return
 
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
