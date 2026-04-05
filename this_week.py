@@ -29,11 +29,24 @@ def scan_this_week_photos() -> dict[int, list]:
     target_start = now - timedelta(days=DAYS_RANGE)
     target_end = now + timedelta(days=DAYS_RANGE)
 
+    # Noise apps — photos from these are almost never worth revisiting
+    noise_apps = {"淘宝", "闲鱼", "京东", "拼多多", "菜鸟", "顺丰", "饿了么", "美团",
+                  "支付宝", "钉钉", "企业微信", "文件"}
+
     by_year = {}
+    skipped = 0
     for p in photos:
         if not p.date or p.date.year >= current_year:
             continue
         if not p.path or not os.path.isfile(p.path):
+            continue
+        # Filter out noise: screenshots, documents, utility app imports
+        if p.screenshot:
+            skipped += 1
+            continue
+        source = p._info.get("imported_by_display_name", "") or ""
+        if source in noise_apps:
+            skipped += 1
             continue
         d = p.date
         try:
@@ -48,6 +61,7 @@ def scan_this_week_photos() -> dict[int, list]:
                 by_year[year] = []
             by_year[year].append(p)
 
+    print(f"  Filtered out {skipped} screenshots/noise photos")
     for year in sorted(by_year):
         print(f"  {year}: {len(by_year[year])} photos")
     return by_year
@@ -111,7 +125,12 @@ def cluster_into_events(photos: list, time_gap_hours: float = 2.0) -> list[dict]
             "fallback_title": fallback_title,
             "title": fallback_title,
             "description": "",
+            # Score: people > landscape > other (for sorting)
+            "interest_score": len(face_names) * 10 + len(event_photos),
         })
+
+    # Sort events: most interesting first (people, then size)
+    result.sort(key=lambda e: e["interest_score"], reverse=True)
     return result
 
 
