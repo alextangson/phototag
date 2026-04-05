@@ -166,3 +166,111 @@ def generate_period_narrative(
 
     # Fallback: join event summaries
     return "；".join(e.get("summary") or "" for e in events if e.get("summary"))
+
+
+def _render_story_markdown(title: str, stats_line: str, groups: list[dict],
+                           ollama_config: dict) -> str:
+    """Render a story Markdown document from grouped events + LLM narratives."""
+    lines = [f"# {title}", "", stats_line, ""]
+
+    for group in groups:
+        label = group["label"]
+        events = group["events"]
+        if label:
+            lines.append(f"## {label}")
+            lines.append("")
+
+        narrative = generate_period_narrative(
+            events,
+            period_label=label,
+            host=ollama_config["host"],
+            model=ollama_config["model"],
+            timeout=ollama_config["timeout"],
+        )
+        lines.append(narrative)
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def generate_person_story(db, person_name: str, ollama_config: dict) -> str:
+    """Generate a person's photo timeline story as Markdown."""
+    person = db.get_person_by_name(person_name)
+    if not person:
+        return f"# 找不到「{person_name}」\n\n请先用 `phototag people --name <fc_id> <name>` 命名该人物，或检查拼写。"
+
+    events = db.get_events_for_person(person["face_cluster_id"])
+    if not events:
+        return f"# 和{person_name}的回忆\n\n暂无包含此人的事件记录。"
+
+    first = (person["first_seen"] or "")[:10]
+    last = (person["last_seen"] or "")[:10]
+    photo_count = person["photo_count"] or 0
+    event_count = len(events)
+
+    title = f"和{person_name}的回忆"
+    stats_line = (
+        f"> 共 {photo_count} 张照片，{event_count} 个事件，"
+        f"{first} ~ {last}"
+    )
+
+    strategy = _pick_grouping_strategy(events)
+    groups = group_events_by_period(events, strategy=strategy)
+
+    return _render_story_markdown(title, stats_line, groups, ollama_config)
+
+
+def generate_year_story(db, year: int, ollama_config: dict) -> str:
+    """Generate a year-in-review story as Markdown."""
+    events = db.get_events_in_year(year)
+    if not events:
+        return f"# {year} 年度回忆\n\n这一年暂无事件记录。"
+
+    photo_total = sum(e.get("photo_count") or 0 for e in events)
+    cities = {e.get("location_city") for e in events if e.get("location_city")}
+
+    title = f"{year} 年度回忆"
+    stats_line = (
+        f"> 共 {photo_total} 张照片，{len(events)} 个事件，"
+        f"到过 {len(cities)} 个地方"
+    )
+
+    strategy = _pick_grouping_strategy(events)
+    groups = group_events_by_period(events, strategy=strategy)
+
+    return _render_story_markdown(title, stats_line, groups, ollama_config)
+
+
+def generate_relationship_story(db, person_name: str, ollama_config: dict) -> str:
+    """Generate a relationship-framed story (duration emphasized)."""
+    person = db.get_person_by_name(person_name)
+    if not person:
+        return f"# 找不到「{person_name}」\n\n请先命名该人物。"
+
+    events = db.get_events_for_person(person["face_cluster_id"])
+    if not events:
+        return f"# 和{person_name}在一起的日子\n\n暂无事件记录。"
+
+    first_dt = _parse_date(person["first_seen"])
+    last_dt = _parse_date(person["last_seen"])
+    days = (last_dt - first_dt).days if (first_dt and last_dt) else 0
+    years = days / 365
+
+    photo_count = person["photo_count"] or 0
+
+    title = f"和{person_name}在一起的日子"
+    if years >= 1:
+        stats_line = (
+            f"> 从 {(person['first_seen'] or '')[:10]} 到 {(person['last_seen'] or '')[:10]}，"
+            f"共 {days} 天（约 {years:.1f} 年），{photo_count} 张照片，{len(events)} 个事件"
+        )
+    else:
+        stats_line = (
+            f"> 从 {(person['first_seen'] or '')[:10]} 到 {(person['last_seen'] or '')[:10]}，"
+            f"共 {days} 天，{photo_count} 张照片，{len(events)} 个事件"
+        )
+
+    strategy = _pick_grouping_strategy(events)
+    groups = group_events_by_period(events, strategy=strategy)
+
+    return _render_story_markdown(title, stats_line, groups, ollama_config)
