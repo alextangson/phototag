@@ -180,3 +180,51 @@ def summarize_event(event: dict, host: str, model: str, timeout: int) -> dict:
         "summary": f"在{location}的一段时光，{first_narr}",
         "mood": "",
     }
+
+
+def build_events(db, ollama_config: dict, gap_minutes: int = 30) -> int:
+    """Build events from done photos: slice, enrich, summarize, persist.
+
+    Args:
+        db: Database instance
+        ollama_config: dict with 'host', 'model', 'timeout'
+        gap_minutes: time gap threshold for event boundary
+
+    Returns:
+        number of events created
+    """
+    photos = db.get_done_photos_ordered()
+    if not photos:
+        logger.info("No done photos to aggregate")
+        return 0
+
+    logger.info(f"Aggregating {len(photos)} photos into events...")
+    raw_events = slice_into_events(photos, gap_minutes=gap_minutes)
+    logger.info(f"Sliced into {len(raw_events)} events")
+
+    for event in raw_events:
+        enriched = enrich_event_metadata(event)
+        summary_data = summarize_event(
+            enriched,
+            host=ollama_config["host"],
+            model=ollama_config["model"],
+            timeout=ollama_config["timeout"],
+        )
+
+        db.upsert_event(
+            event_id=enriched["event_id"],
+            start_time=enriched["start_time"],
+            end_time=enriched["end_time"],
+            location_city=enriched.get("location_city"),
+            location_state=None,
+            photo_count=enriched["photo_count"],
+            face_cluster_ids=json.dumps(enriched["face_cluster_ids"], ensure_ascii=False),
+            summary=summary_data["summary"],
+            mood=summary_data["mood"],
+            cover_photo_uuid=enriched["cover_photo_uuid"],
+        )
+
+        photo_uuids = [p["uuid"] for p in enriched["photos"]]
+        db.link_photos_to_event(enriched["event_id"], photo_uuids)
+
+    return len(raw_events)

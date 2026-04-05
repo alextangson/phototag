@@ -11,6 +11,7 @@ import click
 from photo_memory.config import load_config
 from photo_memory.db import Database
 from photo_memory.dedup import find_duplicate_groups
+from photo_memory.events import build_events
 from photo_memory.load_monitor import LoadMonitor
 from photo_memory.processor import process_batch
 from photo_memory.scanner import scan_photos_into_db
@@ -257,6 +258,27 @@ def reprocess(ctx):
     db = Database(db_path)
     count = db.reset_photos_for_reprocess()
     click.echo(f"Reset {count} photos to pending. Run 'phototag run' to reprocess.")
+    db.close()
+
+
+@main.command()
+@click.option("--gap-minutes", default=30, help="Time gap (minutes) to split events")
+@click.pass_context
+def events(ctx, gap_minutes):
+    """Build events from done photos and list them."""
+    config = ctx.obj["config"]
+    db_path = os.path.join(config["data_dir"], "progress.db")
+    db = Database(db_path)
+
+    count = build_events(db, ollama_config=config["ollama"], gap_minutes=gap_minutes)
+    click.echo(f"Built {count} events.")
+
+    all_events = db.get_all_events()
+    click.echo(f"\n最近 10 个事件:")
+    for e in all_events[:10]:
+        city = e["location_city"] or "未知"
+        click.echo(f"  [{e['start_time'][:10]}] {city} ({e['photo_count']} 张) — {e['summary'] or '(无摘要)'}")
+
     db.close()
 
 

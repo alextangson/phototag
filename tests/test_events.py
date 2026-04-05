@@ -203,3 +203,35 @@ def test_summarize_event_fallback_on_error():
     assert "summary" in result
     assert result["summary"]
     assert "mood" in result
+
+
+def test_build_events_writes_to_db(tmp_path):
+    """build_events orchestrator reads done photos, slices, enriches, writes to DB."""
+    from photo_memory.db import Database
+    from photo_memory.events import build_events
+
+    db = Database(str(tmp_path / "test.db"))
+    db.upsert_photo("p1", date_taken="2024-09-28T13:00:00",
+                    face_cluster_ids='["fc_001"]', location_city="大连市",
+                    ai_result=json.dumps({"narrative": "海边"}))
+    db.upsert_photo("p2", date_taken="2024-09-28T13:15:00",
+                    face_cluster_ids='["fc_001"]', location_city="大连市",
+                    ai_result=json.dumps({"narrative": "沙滩"}))
+    db.upsert_photo("p3", date_taken="2024-09-28T18:00:00",  # gap > 30min
+                    face_cluster_ids='[]', location_city="大连市",
+                    ai_result=json.dumps({"narrative": "晚餐"}))
+    for uuid in ["p1", "p2", "p3"]:
+        db.update_photo_status(uuid, "done")
+
+    with patch("photo_memory.events.summarize_event",
+               return_value={"summary": "测试摘要", "mood": "愉快"}):
+        count = build_events(db, ollama_config={"host": "h", "model": "m", "timeout": 10},
+                             gap_minutes=30)
+
+    assert count == 2
+    events = db.get_all_events()
+    assert len(events) == 2
+    first_event_id = events[0]["event_id"]
+    linked = db.get_event_photos(first_event_id)
+    assert len(linked) >= 1
+    db.close()

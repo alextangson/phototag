@@ -69,3 +69,31 @@ def test_reprocess_command_resets_done_photos(tmp_path, sample_config):
     assert db.get_photo("uuid-2")["status"] == "pending"
     assert db.get_photo("uuid-3")["status"] == "pending"  # was already pending
     db.close()
+
+
+def test_events_command_builds_and_lists(tmp_path, sample_config):
+    """`phototag events` should build events and print a summary."""
+    from unittest.mock import patch
+    from click.testing import CliRunner
+    from photo_memory.cli import main
+    from photo_memory.db import Database
+    import json
+
+    config, config_path = sample_config
+    config["data_dir"] = str(tmp_path)
+    db_path = str(tmp_path / "progress.db")
+
+    db = Database(db_path)
+    db.upsert_photo("p1", date_taken="2024-09-28T13:00:00",
+                    face_cluster_ids='[]', ai_result=json.dumps({"narrative": "test"}))
+    db.update_photo_status("p1", "done")
+    db.close()
+
+    runner = CliRunner()
+    with patch("photo_memory.cli.load_config", return_value=config), \
+         patch("photo_memory.events.summarize_event",
+               return_value={"summary": "测试", "mood": ""}):
+        result = runner.invoke(main, ["--config", config_path, "events"])
+
+    assert result.exit_code == 0
+    assert "event" in result.output.lower() or "事件" in result.output
