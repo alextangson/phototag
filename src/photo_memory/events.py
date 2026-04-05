@@ -2,11 +2,50 @@
 
 import json
 import logging
+import re
 
 import requests
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_json_object(raw: str) -> dict | None:
+    """Extract a JSON object from raw LLM output, tolerating markdown/prose wrap.
+
+    Returns the parsed dict, or None if no valid object found.
+    """
+    if not raw:
+        return None
+    # Direct parse
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Markdown code block: ```json ... ``` or ``` ... ```
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    # Greedy {...} match for wrapping prose
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if match:
+        try:
+            data = json.loads(match.group(0))
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+
+    return None
 
 
 def _parse_date(s: str | None) -> datetime | None:
@@ -168,9 +207,15 @@ def summarize_event(event: dict, host: str, model: str, timeout: int) -> dict:
         )
         response.raise_for_status()
         raw = response.json().get("response", "")
-        data = json.loads(raw)
-        if "summary" in data and "mood" in data:
-            return {"summary": data["summary"], "mood": data["mood"]}
+        data = _extract_json_object(raw)
+        if data and "summary" in data:
+            return {
+                "summary": data["summary"],
+                "mood": data.get("mood", ""),
+            }
+        logger.warning(
+            f"Event summary LLM returned unparseable output for {event.get('event_id')}: {raw[:200]}"
+        )
     except Exception as e:
         logger.warning(f"Event summary LLM failed for {event.get('event_id')}: {e}")
 

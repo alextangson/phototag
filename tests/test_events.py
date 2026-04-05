@@ -205,6 +205,58 @@ def test_summarize_event_fallback_on_error():
     assert "mood" in result
 
 
+def test_summarize_event_parses_json_in_markdown_block():
+    """LLM often wraps JSON in ```json ... ``` — must still parse."""
+    from photo_memory.events import summarize_event
+    event = {
+        "event_id": "evt_md",
+        "photos": [{"uuid": "p1", "date_taken": "2024-09-28T13:00:00",
+                    "ai_result": json.dumps({"narrative": "海边"})}],
+        "start_time": "2024-09-28T13:00:00",
+        "end_time": "2024-09-28T13:00:00",
+        "location_city": "大连市",
+        "face_cluster_ids": [],
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "response": '好的，这是分析结果：\n```json\n{"summary": "海边散步", "mood": "愉快"}\n```'
+    }
+
+    with patch("photo_memory.events.requests.post", return_value=mock_response):
+        result = summarize_event(event, host="http://x", model="m", timeout=10)
+
+    assert result["summary"] == "海边散步"
+    assert result["mood"] == "愉快"
+
+
+def test_summarize_event_parses_json_with_prose_wrap():
+    """LLM may add prose around JSON — must still extract."""
+    from photo_memory.events import summarize_event
+    event = {
+        "event_id": "evt_prose",
+        "photos": [{"uuid": "p1", "date_taken": "2024-09-28T13:00:00",
+                    "ai_result": json.dumps({"narrative": "海边"})}],
+        "start_time": "2024-09-28T13:00:00",
+        "end_time": "2024-09-28T13:00:00",
+        "location_city": "大连市",
+        "face_cluster_ids": [],
+    }
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "response": '根据提供的信息，{"summary": "海边散步", "mood": "平静"} 这是摘要。'
+    }
+
+    with patch("photo_memory.events.requests.post", return_value=mock_response):
+        result = summarize_event(event, host="http://x", model="m", timeout=10)
+
+    assert result["summary"] == "海边散步"
+    assert result["mood"] == "平静"
+
+
 def test_build_events_writes_to_db(tmp_path):
     """build_events orchestrator reads done photos, slices, enriches, writes to DB."""
     from photo_memory.db import Database
