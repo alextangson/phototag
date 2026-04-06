@@ -65,12 +65,14 @@ def test_recognize_photo_calls_ollama(tmp_path):
     mock_response.json.return_value = {
         "response": json.dumps(_make_new_format_json(narrative="测试照片"))
     }
-    with patch("photo_memory.recognizer.requests.post", return_value=mock_response) as mock_post:
+    mock_session = MagicMock()
+    mock_session.post.return_value = mock_response
+    with patch("photo_memory.recognizer.requests.Session", return_value=mock_session):
         result = recognize_photo(str(img_path), host="http://localhost:11434",
                                  model="gemma4:e4b", timeout=60)
     assert result["narrative"] == "测试照片"
-    mock_post.assert_called_once()
-    call_json = mock_post.call_args[1]["json"]
+    mock_session.post.assert_called_once()
+    call_json = mock_session.post.call_args[1]["json"]
     assert call_json["model"] == "gemma4:e4b"
     assert "images" in call_json
 
@@ -90,7 +92,9 @@ def test_recognize_photo_retries_on_bad_json(tmp_path):
     mock_resp_good.status_code = 200
     mock_resp_good.json.return_value = {"response": json.dumps(good_response)}
 
-    with patch("photo_memory.recognizer.requests.post", side_effect=[mock_resp_bad, mock_resp_good]):
+    mock_session = MagicMock()
+    mock_session.post.side_effect = [mock_resp_bad, mock_resp_good]
+    with patch("photo_memory.recognizer.requests.Session", return_value=mock_session):
         result = recognize_photo(str(img_path), host="http://localhost:11434",
                                  model="gemma4:e4b", timeout=60)
     assert result["narrative"] == "重试成功"
@@ -196,11 +200,13 @@ def test_recognize_photo_with_context(tmp_path):
 
     photo_context = {"date": "2024-09-28 周六 13:33", "location_city": "大连市"}
 
-    with patch("photo_memory.recognizer.requests.post", return_value=mock_response) as mock_post:
+    mock_session = MagicMock()
+    mock_session.post.return_value = mock_response
+    with patch("photo_memory.recognizer.requests.Session", return_value=mock_session):
         result = recognize_photo(str(img_path), host="http://localhost:11434",
                                  model="gemma4:e4b", timeout=60,
                                  photo_context=photo_context)
 
     assert result["narrative"] == "带上下文的测试"
-    call_json = mock_post.call_args[1]["json"]
+    call_json = mock_session.post.call_args[1]["json"]
     assert "大连市" in call_json["prompt"]
