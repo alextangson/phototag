@@ -234,9 +234,13 @@ def _ensure_ollama_running(host: str, max_wait: int = 30) -> bool:
 
 
 @main.command()
+@click.option("--now", is_flag=True, default=False,
+              help="Force processing now, ignore time window and load limits")
+@click.option("--limit", type=int, default=None,
+              help="Process at most N photos then stop")
 @click.pass_context
-def run(ctx):
-    """Run the nightly processing loop."""
+def run(ctx, now, limit):
+    """Run the processing loop."""
     config = ctx.obj["config"]
     ollama_host = config["ollama"]["host"]
 
@@ -259,10 +263,22 @@ def run(ctx):
     pending_row = db.execute("SELECT COUNT(*) as c FROM photos WHERE status='pending'").fetchone()
     logger.info(f"待处理照片: {pending_row['c']} 张")
 
-    monitor = LoadMonitor(
-        max_memory_pressure=config["load"]["max_memory_pressure"],
-        min_cpu_idle=config["load"]["min_cpu_idle"],
-    )
+    if now:
+        # Force mode: permissive load monitor (never stops)
+        monitor = LoadMonitor(max_memory_pressure="critical", min_cpu_idle=0)
+    else:
+        monitor = LoadMonitor(
+            max_memory_pressure=config["load"]["max_memory_pressure"],
+            min_cpu_idle=config["load"]["min_cpu_idle"],
+        )
+
+    if now:
+        # Force mode: use permissive settings
+        end_hour = 24  # never expire
+        start_hour = 0
+    else:
+        end_hour = config["schedule"]["end_hour"]
+        start_hour = config["schedule"]["start_hour"]
 
     with tempfile.TemporaryDirectory(prefix="phototag-") as tmp_dir:
         run_id = db.start_run()
@@ -270,11 +286,11 @@ def run(ctx):
             stats = process_batch(
                 db=db,
                 monitor=monitor,
-                check_interval=config["schedule"]["check_interval"],
+                check_interval=limit or config["schedule"]["check_interval"],
                 ollama_config=config["ollama"],
                 tmp_dir=tmp_dir,
-                end_hour=config["schedule"]["end_hour"],
-                start_hour=config["schedule"]["start_hour"],
+                end_hour=end_hour,
+                start_hour=start_hour,
             )
             db.end_run(run_id, stats["processed"], stats.get("skipped", 0),
                        stats["errored"], stats["stop_reason"])
