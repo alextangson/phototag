@@ -13,7 +13,7 @@ DEFAULT_CONFIG = {
     "ollama": {
         "host": "http://localhost:11434",
         "model": "gemma4:e4b",
-        "timeout": 60,
+        "timeout": 180,
     },
     "schedule": {
         "start_hour": 1,

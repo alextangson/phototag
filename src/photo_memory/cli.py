@@ -193,20 +193,71 @@ def scan(ctx):
     db.close()
 
 
+def _ensure_ollama_running(host: str, max_wait: int = 30) -> bool:
+    """Start Ollama if not running, wait up to max_wait seconds for it to be ready."""
+    import time
+    import urllib.request
+
+    # Check if already running
+    try:
+        req = urllib.request.Request(f"{host}/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=5):
+            return True
+    except Exception:
+        pass
+
+    # Try to start Ollama
+    logger.info("Ollama 未运行，正在自动启动...")
+    try:
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except FileNotFoundError:
+        logger.error("ollama 未安装，无法自动启动。请先安装 Ollama。")
+        return False
+
+    # Wait for it to be ready
+    for i in range(max_wait):
+        time.sleep(1)
+        try:
+            req = urllib.request.Request(f"{host}/api/tags", method="GET")
+            with urllib.request.urlopen(req, timeout=3):
+                logger.info(f"Ollama 已启动（等待了 {i+1}s）")
+                return True
+        except Exception:
+            pass
+
+    logger.error(f"Ollama 启动超时（等待 {max_wait}s）")
+    return False
+
+
 @main.command()
 @click.pass_context
 def run(ctx):
     """Run the nightly processing loop."""
     config = ctx.obj["config"]
+    ollama_host = config["ollama"]["host"]
 
-    if not run_preflight(ollama_host=config["ollama"]["host"], interactive=False):
+    # Auto-start Ollama if needed (critical for unattended launchd runs)
+    if not _ensure_ollama_running(ollama_host):
+        logger.error("Ollama 无法启动，终止运行。")
+        raise SystemExit(1)
+
+    if not run_preflight(ollama_host=ollama_host, interactive=False):
         logger.error("权限预检失败，终止运行。请先执行 phototag preflight 检查并授权。")
         raise SystemExit(1)
 
     db_path = os.path.join(config["data_dir"], "progress.db")
     db = Database(db_path)
 
+    logger.info("开始扫描照片库...")
     scan_photos_into_db(db)
+
+    # Check pending count before processing
+    pending_row = db.execute("SELECT COUNT(*) as c FROM photos WHERE status='pending'").fetchone()
+    logger.info(f"待处理照片: {pending_row['c']} 张")
 
     monitor = LoadMonitor(
         max_memory_pressure=config["load"]["max_memory_pressure"],
@@ -227,6 +278,8 @@ def run(ctx):
             )
             db.end_run(run_id, stats["processed"], stats.get("skipped", 0),
                        stats["errored"], stats["stop_reason"])
+            logger.info(f"Run complete: {stats['processed']} processed, "
+                        f"{stats['errored']} errors. Stop reason: {stats['stop_reason']}")
             click.echo(f"Run complete: {stats['processed']} processed, "
                        f"{stats['errored']} errors. Stop reason: {stats['stop_reason']}")
         except Exception as e:
