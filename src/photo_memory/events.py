@@ -213,7 +213,8 @@ def summarize_event(event: dict, host: str, model: str, timeout: int) -> dict:
         response = requests.post(
             f"{host}/api/generate",
             json={"model": model, "prompt": prompt, "stream": False},
-            timeout=timeout,
+            timeout=(10, max(timeout, 120)),
+            headers={"Connection": "close"},
         )
         response.raise_for_status()
         raw = response.json().get("response", "")

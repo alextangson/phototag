@@ -162,11 +162,14 @@ def recognize_photo(image_path: str, host: str, model: str, timeout: int,
         "stream": False,
     }
 
+    session = requests.Session()
+
     for attempt in range(max_retries + 1):
-        response = requests.post(
+        response = session.post(
             f"{host}/api/generate",
             json=payload,
-            timeout=timeout,
+            timeout=(10, max(timeout, 120)),  # (connect, read) — enforce min 120s read
+            headers={"Connection": "close"},  # prevent pool reuse with stale timeout
         )
         response.raise_for_status()
 

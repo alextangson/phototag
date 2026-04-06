@@ -1,5 +1,7 @@
 """Main processing loop: export -> hash -> recognize -> tag."""
 
+ACTUAL_MIN_TIMEOUT = 180  # Hard minimum for Ollama vision requests
+
 import json
 import logging
 import os
@@ -119,11 +121,13 @@ def process_one_photo(db: Database, photo_row: dict, ollama_config: dict,
             # Photo processing
             phash = compute_phash(exported_path)
             photo_context = build_photo_context(photo_row)
+            actual_timeout = max(ollama_config.get("timeout", 180), ACTUAL_MIN_TIMEOUT)
+            logger.info(f"Processing {uuid[:8]} timeout={actual_timeout}")
             result = recognize_photo(
                 exported_path,
                 host=ollama_config["host"],
                 model=ollama_config["model"],
-                timeout=ollama_config["timeout"],
+                timeout=actual_timeout,
                 photo_context=photo_context,
             )
 
