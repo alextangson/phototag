@@ -136,6 +136,11 @@ def process_one_photo(db: Database, photo_row: dict, ollama_config: dict,
         except Exception as e:
             logger.warning(f"Tag write-back failed for {uuid}: {e}")
 
+        # Post-process cleanup_class: enforce screenshot rule
+        cleanup_class = result.get("cleanup_class", "keep")
+        if photo_row.get("is_screenshot") and cleanup_class == "keep":
+            cleanup_class = "review"
+
         db.update_photo_result(
             uuid=uuid,
             status="done",
@@ -143,7 +148,7 @@ def process_one_photo(db: Database, photo_row: dict, ollama_config: dict,
             ai_result=json.dumps(result, ensure_ascii=False),
             tags=json.dumps(result.get("search_tags", []), ensure_ascii=False),
             description=result.get("narrative", ""),
-            importance=result.get("cleanup_class", "keep"),
+            importance=cleanup_class,
             media_type=result.get("scene_category", "photo"),
         )
         return True
