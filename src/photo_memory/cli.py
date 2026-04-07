@@ -264,8 +264,8 @@ def run(ctx, now, limit):
     logger.info(f"待处理照片: {pending_row['c']} 张")
 
     if now:
-        # Force mode: permissive load monitor (never stops)
-        monitor = LoadMonitor(max_memory_pressure="critical", min_cpu_idle=0)
+        # Force mode: completely disable load monitoring
+        monitor = LoadMonitor(disabled=True)
     else:
         monitor = LoadMonitor(
             max_memory_pressure=config["load"]["max_memory_pressure"],

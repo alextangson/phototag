@@ -15,11 +15,15 @@ PRESSURE_LEVELS = {"normal": 0, "warn": 1, "critical": 2}
 
 
 class LoadMonitor:
-    def __init__(self, max_memory_pressure: str = "warn", min_cpu_idle: float = 30.0):
+    def __init__(self, max_memory_pressure: str = "warn", min_cpu_idle: float = 30.0,
+                 disabled: bool = False):
         self.max_memory_pressure = max_memory_pressure
         self.min_cpu_idle = min_cpu_idle
+        self.disabled = disabled
 
     def check(self) -> LoadDecision:
+        if self.disabled:
+            return LoadDecision.CONTINUE
         mem_pressure = self._get_memory_pressure()
         cpu_idle = self._get_cpu_idle()
 
