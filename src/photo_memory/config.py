@@ -16,8 +16,8 @@ DEFAULT_CONFIG = {
         "timeout": 180,
     },
     "schedule": {
-        "start_hour": 1,
-        "end_hour": 7,
+        "start_hour": 23,
+        "end_hour": 6,
         "check_interval": 10,
     },
     "load": {
