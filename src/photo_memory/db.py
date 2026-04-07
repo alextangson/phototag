@@ -346,6 +346,22 @@ class Database:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_events_on_this_day(self, month: int, day: int) -> list[dict]:
+        """Get events from any year whose start_time matches the given month+day.
+
+        Returns events grouped by year (sorted year DESC, time ASC within year).
+        """
+        # SQLite strftime: %m = month, %d = day (zero-padded)
+        pattern_month = f"{month:02d}"
+        pattern_day = f"{day:02d}"
+        rows = self.conn.execute(
+            "SELECT * FROM events "
+            "WHERE strftime('%m', start_time) = ? AND strftime('%d', start_time) = ? "
+            "ORDER BY start_time DESC",
+            (pattern_month, pattern_day),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
     def search_photos(
         self,
         face_cluster_ids: list[str] | None = None,

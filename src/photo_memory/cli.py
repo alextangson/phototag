@@ -24,6 +24,7 @@ from photo_memory.story import (
     build_person_html,
 )
 from photo_memory.search import search_photos as do_search, list_cleanup_candidates
+from photo_memory.daily import run_daily_push
 from photo_memory.merge import merge_clusters
 
 logger = logging.getLogger("photo_memory")
@@ -303,6 +304,43 @@ def run(ctx, now, limit):
             logger.error(f"Run failed: {e}")
             raise
 
+    # Post-processing: rebuild events + people + daily push
+    if stats.get("processed", 0) > 0:
+        try:
+            logger.info("重建事件和人物图谱...")
+            from photo_memory.events import build_events
+            build_events(db, ollama_config=config["ollama"])
+            build_people(db)
+            logger.info("事件和人物图谱已更新")
+        except Exception as e:
+            logger.warning(f"事件/人物重建失败: {e}")
+
+    # Daily memory push
+    try:
+        daily_dir = os.path.join(config["data_dir"], "daily")
+        result = run_daily_push(db, config["ollama"], daily_dir)
+        if result:
+            logger.info(f"每日回忆已生成: {result}")
+    except Exception as e:
+        logger.warning(f"每日回忆生成失败: {e}")
+
+    db.close()
+
+
+@main.command()
+@click.pass_context
+def daily(ctx):
+    """Generate today's memory push (On This Day / This Week)."""
+    config = ctx.obj["config"]
+    db_path = os.path.join(config["data_dir"], "progress.db")
+    db = Database(db_path)
+    daily_dir = os.path.join(config["data_dir"], "daily")
+
+    result = run_daily_push(db, config["ollama"], daily_dir)
+    if result:
+        click.echo(f"回忆已生成: {result}")
+    else:
+        click.echo("今天没有历史回忆可推送")
     db.close()
 
 
